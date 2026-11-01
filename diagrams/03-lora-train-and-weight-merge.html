@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Entrenamiento LoRA y Fusión de Pesos en Flax NNX · Architecture</title>
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --color-paper: #F7F6F2;
+      --color-paper-2: #EFECE6;
+      --color-ink: #0F2547;
+      --color-muted: #3B5B8C;
+      --color-accent: #C59216;
+      --font-sans: 'Geist', system-ui, sans-serif;
+      --font-serif: 'Instrument Serif', serif;
+      --font-mono: 'Geist Mono', ui-monospace, monospace;
+    }
+    body {
+      font-family: var(--font-sans);
+      background: var(--color-paper);
+      color: var(--color-ink);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 2.5rem 2rem;
+    }
+    .frame { max-width: 1200px; width: 100%; min-width: 0; }
+    .diagram-container { width: 100%; overflow-x: auto; }
+    .eyebrow {
+      font-family: var(--font-mono);
+      font-size: 0.66rem;
+      font-weight: 500;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--color-muted);
+      margin-bottom: 0.5rem;
+    }
+    h1 {
+      font-family: var(--font-serif);
+      font-size: clamp(1.5rem, 2.4vw + 0.75rem, 2rem);
+      font-weight: 400;
+      letter-spacing: -0.02em;
+      line-height: 1.15;
+      color: var(--color-ink);
+      margin-bottom: 1.5rem;
+    }
+    svg { width: 100%; min-width: 1040px; display: block; }
+    @media print {
+      .diagram-container { overflow-x: visible; }
+      svg { min-width: 0; }
+    }
+  </style>
+</head>
+<body>
+  <div class="frame">
+    <p class="eyebrow">Architecture · Adaptadores LoRA y Fusión Matemática para Producción</p>
+    <h1>Entrenar solo el 2.08% con nnx.LoRA y fusionar W_merged = W_base + A @ B al servir</h1>
+
+    <div class="diagram-container">
+      <svg viewBox="0 0 1040 540" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="lora-merge-arch-title lora-merge-arch-desc">
+        <title id="lora-merge-arch-title">Entrenar solo el 2.08% con nnx.LoRA y fusionar W_merged = W_base + A @ B al servir</title>
+        <desc id="lora-merge-arch-desc">Arquitectura de dos fases en Flax NNX: durante el entrenamiento los pesos base permanecen congelados y solo se actualiza la rama de bajo rango A por B; antes de desplegar en Cloud Run se suma A por B sobre W_base para servir con cero latencia extra.</desc>
+        <defs>
+          <pattern id="dots" width="22" height="22" patternUnits="userSpaceOnUse">
+            <circle cx="1" cy="1" r="0.9" fill="rgba(15,37,71,0.10)"/>
+          </pattern>
+          <marker id="arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#3B5B8C"/></marker>
+          <marker id="arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#C59216"/></marker>
+        </defs>
+
+        <rect width="100%" height="100%" fill="#F7F6F2"/>
+        <rect width="100%" height="100%" fill="url(#dots)" opacity="0.55"/>
+
+        <!-- Zones -->
+        <rect x="40" y="64" width="520" height="384" rx="8" fill="rgba(15,37,71,0.02)" stroke="rgba(15,37,71,0.16)" stroke-width="0.8"/>
+        <rect x="56" y="68" width="320" height="16" rx="2" fill="#F7F6F2"/>
+        <text x="216" y="79" fill="#3B5B8C" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.14em">1 · FASE DE ENTRENAMIENTO (NNX.LORA DUAL-BRANCH)</text>
+
+        <rect x="616" y="64" width="384" height="384" rx="8" fill="rgba(197,146,22,0.04)" stroke="rgba(197,146,22,0.40)" stroke-width="1" stroke-dasharray="4,4"/>
+        <rect x="632" y="68" width="348" height="16" rx="2" fill="#F7F6F2"/>
+        <text x="806" y="79" fill="#9A6F0B" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.14em" font-weight="600">2 · FUSIÓN MATEMÁTICA Y SERVING (CLOUD RUN)</text>
+
+        <!-- Orthogonal Arrows -->
+        <!-- Input x (Node 1) -> Frozen Base W_base (Node 2) -->
+        <path d="M 164,196 V 136 Q 164,128 172,128 H 284" fill="none" stroke="#3B5B8C" stroke-width="1.2" marker-end="url(#arrow)"/>
+        <!-- Input x (Node 1) -> Trainable LoRA A@B (Node 3) -->
+        <path d="M 164,284 V 344 Q 164,352 172,352 H 284" fill="none" stroke="#C59216" stroke-width="1.6" marker-end="url(#arrow-accent)"/>
+        <!-- Frozen W_base (Node 2) -> Merged Kernel (Node 4) -->
+        <path d="M 528,152 H 580 Q 588,152 588,160 V 168 Q 588,176 596,176 H 660" fill="none" stroke="#3B5B8C" stroke-width="1.2" marker-end="url(#arrow)"/>
+        <!-- Trainable LoRA A@B (Node 3) -> Merged Kernel (Node 4) -->
+        <path d="M 528,336 H 588 Q 596,336 596,328 V 200 Q 596,192 604,192 H 660" fill="none" stroke="#C59216" stroke-width="1.6" marker-end="url(#arrow-accent)"/>
+        <!-- Merged Kernel (Node 4) -> Cloud Run Endpoint (Node 5) -->
+        <line x1="808" y1="224" x2="808" y2="292" stroke="#C59216" stroke-width="1.6" marker-end="url(#arrow-accent)"/>
+
+        <!-- Arrow Labels -->
+        <rect x="180" y="104" width="84" height="16" rx="2" fill="#F7F6F2"/>
+        <text x="222" y="115" fill="#3B5B8C" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">CONGELADO</text>
+
+        <rect x="180" y="360" width="88" height="16" rx="2" fill="#F7F6F2"/>
+        <text x="224" y="371" fill="#9A6F0B" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em" font-weight="600">ADAMW GRAD</text>
+
+        <rect x="604" y="252" width="80" height="16" rx="2" fill="#F7F6F2"/>
+        <text x="644" y="263" fill="#9A6F0B" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em" font-weight="600">SUMA A @ B</text>
+
+        <rect x="816" y="248" width="96" height="16" rx="2" fill="#F7F6F2"/>
+        <text x="864" y="259" fill="#9A6F0B" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em" font-weight="600">0 LORAPARAM</text>
+
+        <!-- Nodes -->
+        <!-- Node 1: Activations x -->
+        <rect x="64" y="196" width="160" height="88" rx="6" fill="#EFECE6" stroke="#0F2547" stroke-width="1"/>
+        <text x="80" y="220" fill="#3B5B8C" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.12em">ENTRADA CAPA</text>
+        <text x="80" y="242" fill="#0F2547" font-size="13" font-weight="600" font-family="'Geist', sans-serif">Activaciones x</text>
+        <text x="80" y="262" fill="#3B5B8C" font-size="9" font-family="'Geist Mono', monospace">float32[B, T, 256]</text>
+
+        <!-- Node 2: Frozen Base Weights W_base -->
+        <rect x="284" y="108" width="244" height="88" rx="6" fill="#FFFFFF" stroke="#0F2547" stroke-width="1"/>
+        <text x="300" y="132" fill="#3B5B8C" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.12em">NNX.PARAM · 97.92% DEL MODELO</text>
+        <text x="300" y="154" fill="#0F2547" font-size="13" font-weight="600" font-family="'Geist', sans-serif">Pesos Base W_base (3.67M)</text>
+        <text x="300" y="174" fill="#3B5B8C" font-size="9" font-family="'Geist Mono', monospace">max_base_diff == 0.0 (intactos)</text>
+
+        <!-- Node 3 (FOCAL GOLD): Trainable LoRA Adapter A @ B -->
+        <rect x="284" y="292" width="244" height="88" rx="6" fill="rgba(197,146,22,0.12)" stroke="#C59216" stroke-width="1.6"/>
+        <text x="300" y="316" fill="#9A6F0B" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.12em" font-weight="600">FOCAL · NNX.LORAPARAM (2.08%)</text>
+        <text x="300" y="338" fill="#0F2547" font-size="13" font-weight="600" font-family="'Geist', sans-serif">Adaptador Bajo Rango A @ B</text>
+        <text x="300" y="358" fill="#9A6F0B" font-size="9" font-family="'Geist Mono', monospace" font-weight="500">rank=4 · 77,824 params entrenables</text>
+
+        <!-- Node 4 (FOCAL GOLD): Merged Single-Branch Linear -->
+        <rect x="660" y="128" width="296" height="96" rx="6" fill="rgba(197,146,22,0.12)" stroke="#C59216" stroke-width="1.6"/>
+        <text x="676" y="152" fill="#9A6F0B" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.12em" font-weight="600">FOCAL · FUSIÓN ALGEBRAICA EXACTA</text>
+        <text x="676" y="176" fill="#0F2547" font-size="14" font-weight="600" font-family="'Geist', sans-serif">W_merged = W_base + (A @ B)</text>
+        <text x="676" y="198" fill="#9A6F0B" font-size="9" font-family="'Geist Mono', monospace" font-weight="500">1 sola matriz nnx.Linear · Δ &lt; 1e-5</text>
+
+        <!-- Node 5: Cloud Run HTTP Endpoint -->
+        <rect x="660" y="292" width="296" height="88" rx="6" fill="#FFFFFF" stroke="#0F2547" stroke-width="1"/>
+        <text x="676" y="316" fill="#3B5B8C" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.12em">SERVING SERVERLESS (--MIN-INSTANCES=0)</text>
+        <text x="676" y="338" fill="#0F2547" font-size="13" font-weight="600" font-family="'Geist', sans-serif">Endpoint POST /v1/triage</text>
+        <text x="676" y="358" fill="#3B5B8C" font-size="9" font-family="'Geist Mono', monospace">HTTP 200 · 0 latencia extra de adaptador</text>
+
+        <!-- Bottom Legend Strip -->
+        <line x1="40" y1="476" x2="1000" y2="476" stroke="rgba(15,37,71,0.14)" stroke-width="0.8"/>
+        <rect x="40" y="492" width="20" height="12" rx="2" fill="rgba(197,146,22,0.14)" stroke="#C59216" stroke-width="1.4"/>
+        <text x="68" y="502" fill="#9A6F0B" font-size="8.5" font-family="'Geist', sans-serif" font-weight="600">Rama LoRA entrenable y matriz fusionada para producción</text>
+
+        <rect x="420" y="492" width="20" height="12" rx="2" fill="#FFFFFF" stroke="#0F2547" stroke-width="1"/>
+        <text x="448" y="502" fill="#3B5B8C" font-size="8.5" font-family="'Geist', sans-serif">Pesos base congelados / servicio HTTP</text>
+
+        <rect x="708" y="492" width="20" height="12" rx="2" fill="#EFECE6" stroke="#0F2547" stroke-width="1"/>
+        <text x="736" y="502" fill="#3B5B8C" font-size="8.5" font-family="'Geist', sans-serif">Tensor de entrada en memoria PJRT</text>
+      </svg>
+    </div>
+  </div>
+</body>
+</html>

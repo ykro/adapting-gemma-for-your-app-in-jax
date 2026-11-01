@@ -1,0 +1,11 @@
+title = "Gitleaks configuration for adapting-gemma-for-your-app-in-jax"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Allow documentation and benchmark artifacts"
+paths = [
+  '''benchmarks/latest_results\.json''',
+  '''benchmarks/terminal_output\.txt''',
+]

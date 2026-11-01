@@ -1,0 +1,124 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg viewBox="0 0 1040 540" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="completion-masking-title completion-masking-desc" id="d-02-completion-only-loss-masking-root">
+        <title id="completion-masking-title">Por qué loss_mask vale 0 en la instrucción y 1 solo en el JSON de salida</title>
+        <desc id="completion-masking-desc">Flujo de empaquetado estático a 32 tokens que asigna máscara 0.0 a los tokens de la instrucción y al padding, y máscara 1.0 únicamente a los 14 tokens de la respuesta JSON para concentrar el gradiente de LoRA.</desc>
+        <defs>
+      <style>@import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&amp;family=Geist:wght@400;500;600&amp;family=Geist+Mono:wght@400;500;600&amp;family=Noto+Serif:ital@0;1&amp;family=Noto+Sans+KR:wght@400;500;600&amp;family=Noto+Serif+KR:wght@400&amp;family=Noto+Sans+TC:wght@400;500;600&amp;family=Noto+Serif+TC:wght@400&amp;display=swap');
+      #d-02-completion-only-loss-masking-root { --color-paper: #F7F6F2;
+      --color-paper-2: #EFECE6;
+      --color-ink: #0F2547;
+      --color-muted: #3B5B8C;
+      --color-accent: #C59216;
+      --font-sans: 'Geist', system-ui, sans-serif;
+      --font-serif: 'Instrument Serif', serif;
+      --font-mono: 'Geist Mono', ui-monospace, monospace; }
+      #d-02-completion-only-loss-masking-root { font-family: var(--font-sans); color: var(--color-ink); }
+      #d-02-completion-only-loss-masking-root .diagram-container { width: 100%; overflow-x: auto; }
+      #d-02-completion-only-loss-masking-root .diagram-container { overflow-x: visible; }</style>
+          <pattern id="d-02-completion-only-loss-masking-dots" width="22" height="22" patternUnits="userSpaceOnUse">
+            <circle cx="1" cy="1" r="0.9" fill="#0f2547" fill-opacity="0.10"/>
+          </pattern>
+          <marker id="d-02-completion-only-loss-masking-arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#3B5B8C"/></marker>
+          <marker id="d-02-completion-only-loss-masking-arrow-accent" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#C59216"/></marker>
+        </defs>
+
+        <rect width="100%" height="100%" fill="#F7F6F2"/>
+        <rect width="100%" height="100%" fill="url(#d-02-completion-only-loss-masking-dots)" opacity="0.55"/>
+
+        <!-- Zones -->
+        <rect x="40" y="64" width="620" height="384" rx="8" fill="#0f2547" fill-opacity="0.02" stroke="#0f2547" stroke-opacity="0.16" stroke-width="0.8"/>
+        <rect x="56" y="68" width="320" height="16" rx="2" fill="#F7F6F2"/>
+        <text x="216" y="79" fill="#3B5B8C" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.14em">1 · SECUENCIA ESTÁTICA EMPACADA (SHAPE [12, 32])</text>
+
+        <rect x="708" y="64" width="292" height="384" rx="8" fill="#c59216" fill-opacity="0.04" stroke="#c59216" stroke-opacity="0.40" stroke-width="1" stroke-dasharray="4,4"/>
+        <rect x="724" y="68" width="260" height="16" rx="2" fill="#F7F6F2"/>
+        <text x="854" y="79" fill="#9A6F0B" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.14em" font-weight="600">2 · CROSS-ENTROPY CON MÁSCARA</text>
+
+        <!-- Orthogonal Arrows (drawn before boxes) -->
+        <!-- Segment 1 (Prompt) -> Mask 0 -->
+        <line x1="152" y1="196" x2="152" y2="288" stroke="#3B5B8C" stroke-width="1.2" stroke-dasharray="5,4" marker-end="url(#d-02-completion-only-loss-masking-arrow)"/>
+        <!-- Segment 2 (JSON Completion) -> Mask 1 (FOCAL GOLD) -->
+        <line x1="364" y1="196" x2="364" y2="288" stroke="#C59216" stroke-width="1.6" marker-end="url(#d-02-completion-only-loss-masking-arrow-accent)"/>
+        <!-- Segment 3 (Tail Pad) -> Mask 0 -->
+        <line x1="564" y1="196" x2="564" y2="288" stroke="#3B5B8C" stroke-width="1.2" stroke-dasharray="5,4" marker-end="url(#d-02-completion-only-loss-masking-arrow)"/>
+
+        <!-- Mask 1 (Node 5) -> Masked CE Loss (Node 7) -->
+        <path d="M 456,336 H 684 Q 692,336 692,328 V 164 Q 692,156 700,156 H 732" fill="none" stroke="#C59216" stroke-width="1.6" marker-end="url(#d-02-completion-only-loss-masking-arrow-accent)"/>
+        <!-- Masked CE Loss (Node 7) -> LoRA Update (Node 8) -->
+        <line x1="856" y1="204" x2="856" y2="288" stroke="#C59216" stroke-width="1.6" marker-end="url(#d-02-completion-only-loss-masking-arrow-accent)"/>
+
+        <!-- Arrow Labels -->
+        <rect x="160" y="232" width="76" height="16" rx="2" fill="#F7F6F2"/>
+        <text x="198" y="243" fill="#3B5B8C" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">IGNORA 40%</text>
+
+        <rect x="372" y="232" width="84" height="16" rx="2" fill="#F7F6F2"/>
+        <text x="414" y="243" fill="#9A6F0B" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em" font-weight="600">SUPERVISA</text>
+
+        <rect x="572" y="232" width="68" height="16" rx="2" fill="#F7F6F2"/>
+        <text x="606" y="243" fill="#3B5B8C" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em">PAD = 0</text>
+
+        <rect x="864" y="236" width="108" height="16" rx="2" fill="#F7F6F2"/>
+        <text x="918" y="247" fill="#9A6F0B" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.08em" font-weight="600">GRADIENTE PURO</text>
+
+        <!-- Row 1 Nodes: Sequence Segments -->
+        <!-- Node 1: Prompt Segment [0..15] -->
+        <rect x="60" y="108" width="184" height="88" rx="6" fill="#FFFFFF" stroke="#0F2547" stroke-width="1"/>
+        <text x="76" y="132" fill="#3B5B8C" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.12em">POS [0..15] · PROMPT</text>
+        <text x="76" y="154" fill="#0F2547" font-size="13" font-weight="600" font-family="'Geist', sans-serif">Instrucción + "=&gt;"</text>
+        <text x="76" y="174" fill="#3B5B8C" font-size="9" font-family="'Geist Mono', monospace">"alerta critica pagos =&gt;"</text>
+
+        <!-- Node 2 (FOCAL GOLD): Target JSON Completion [16..29] -->
+        <rect x="268" y="108" width="192" height="88" rx="6" fill="#c59216" fill-opacity="0.12" stroke="#C59216" stroke-width="1.6"/>
+        <text x="284" y="132" fill="#9A6F0B" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.12em" font-weight="600">POS [16..29] · TARGET</text>
+        <text x="284" y="154" fill="#0F2547" font-size="13" font-weight="600" font-family="'Geist', sans-serif">14 Tokens JSON + EOS</text>
+        <text x="284" y="174" fill="#9A6F0B" font-size="9" font-family="'Geist Mono', monospace" font-weight="500">{"sev":"P1",...}&lt;eos&gt;</text>
+
+        <!-- Node 3: Static Padding [30..31] -->
+        <rect x="484" y="108" width="156" height="88" rx="6" fill="#EFECE6" stroke="#3B5B8C" stroke-width="1"/>
+        <text x="500" y="132" fill="#3B5B8C" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.12em">POS [30..31] · PAD</text>
+        <text x="500" y="154" fill="#0F2547" font-size="13" font-weight="600" font-family="'Geist', sans-serif">Bucket Estático</text>
+        <text x="500" y="174" fill="#3B5B8C" font-size="9" font-family="'Geist Mono', monospace">&lt;pad&gt; · 0 recompiles</text>
+
+        <!-- Row 2 Nodes: Loss Mask Vector -->
+        <!-- Node 4: Prompt Mask = 0.0 -->
+        <rect x="60" y="288" width="184" height="88" rx="6" fill="#EFECE6" stroke="#3B5B8C" stroke-width="1" stroke-dasharray="4,4"/>
+        <text x="76" y="312" fill="#3B5B8C" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.12em">MÁSCARA DE PROMPT</text>
+        <text x="76" y="334" fill="#0F2547" font-size="13" font-weight="600" font-family="'Geist', sans-serif">loss_mask = 0.0</text>
+        <text x="76" y="354" fill="#3B5B8C" font-size="9" font-family="'Geist Mono', monospace">no memorizar pregunta</text>
+
+        <!-- Node 5 (FOCAL GOLD): Completion Mask = 1.0 -->
+        <rect x="268" y="288" width="188" height="88" rx="6" fill="#c59216" fill-opacity="0.12" stroke="#C59216" stroke-width="1.6"/>
+        <text x="284" y="312" fill="#9A6F0B" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.12em" font-weight="600">FOCAL · MÁSCARA ACTIVA</text>
+        <text x="284" y="334" fill="#0F2547" font-size="13" font-weight="600" font-family="'Geist', sans-serif">loss_mask = 1.0</text>
+        <text x="284" y="354" fill="#9A6F0B" font-size="9" font-family="'Geist Mono', monospace" font-weight="500">100% foco en JSON</text>
+
+        <!-- Node 6: Pad Mask = 0.0 -->
+        <rect x="484" y="288" width="156" height="88" rx="6" fill="#EFECE6" stroke="#3B5B8C" stroke-width="1" stroke-dasharray="4,4"/>
+        <text x="500" y="312" fill="#3B5B8C" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.12em">MÁSCARA DE PADDING</text>
+        <text x="500" y="334" fill="#0F2547" font-size="13" font-weight="600" font-family="'Geist', sans-serif">loss_mask = 0.0</text>
+        <text x="500" y="354" fill="#3B5B8C" font-size="9" font-family="'Geist Mono', monospace">relleno inerte</text>
+
+        <!-- Zone 2 Nodes: Objective & Gradient -->
+        <!-- Node 7: Masked Cross-Entropy -->
+        <rect x="732" y="108" width="248" height="96" rx="6" fill="#FFFFFF" stroke="#0F2547" stroke-width="1"/>
+        <text x="748" y="132" fill="#3B5B8C" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.12em">OBJETIVO DIFERENCIABLE</text>
+        <text x="748" y="154" fill="#0F2547" font-size="13" font-weight="600" font-family="'Geist', sans-serif">Cross-Entropy Enmascarada</text>
+        <text x="748" y="176" fill="#3B5B8C" font-size="9" font-family="'Geist Mono', monospace">sum(-log_p * mask) / sum(mask)</text>
+
+        <!-- Node 8: Fast LoRA Convergence -->
+        <rect x="732" y="288" width="248" height="88" rx="6" fill="#FFFFFF" stroke="#0F2547" stroke-width="1"/>
+        <text x="748" y="312" fill="#3B5B8C" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.12em">ACTUALIZACIÓN OPTAX</text>
+        <text x="748" y="334" fill="#0F2547" font-size="13" font-weight="600" font-family="'Geist', sans-serif">Menor Pérdida en JSON</text>
+        <text x="748" y="354" fill="#3B5B8C" font-size="9" font-family="'Geist Mono', monospace">100% exactitud de tokens</text>
+
+        <!-- Bottom Legend Strip -->
+        <line x1="40" y1="476" x2="1000" y2="476" stroke="#0f2547" stroke-opacity="0.14" stroke-width="0.8"/>
+        <rect x="40" y="492" width="20" height="12" rx="2" fill="#c59216" fill-opacity="0.14" stroke="#C59216" stroke-width="1.4"/>
+        <text x="68" y="502" fill="#9A6F0B" font-size="8.5" font-family="'Geist', sans-serif" font-weight="600">Tokens supervisados (loss_mask = 1.0 · respuesta JSON estructurada)</text>
+
+        <rect x="440" y="492" width="20" height="12" rx="2" fill="#EFECE6" stroke="#3B5B8C" stroke-width="1" stroke-dasharray="4,4"/>
+        <text x="468" y="502" fill="#3B5B8C" font-size="8.5" font-family="'Geist', sans-serif">Tokens enmascarados (loss_mask = 0.0 · prompt + padding)</text>
+
+        <rect x="780" y="492" width="20" height="12" rx="2" fill="#FFFFFF" stroke="#0F2547" stroke-width="1"/>
+        <text x="808" y="502" fill="#3B5B8C" font-size="8.5" font-family="'Geist', sans-serif">Cómputo compilado en @nnx.jit</text>
+      </svg>

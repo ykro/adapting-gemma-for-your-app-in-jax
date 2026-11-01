@@ -1,0 +1,121 @@
+{
+  "runtime": {
+    "python": "3.12.11",
+    "jax": "0.12.0.1",
+    "flax": "0.12.12",
+    "optax": "0.2.8",
+    "numpy": "2.5.4",
+    "backend": "cpu"
+  },
+  "experiments": {
+    "01_when_prompting_hits_a_wall": {
+      "backend": "cpu",
+      "batch_size": 8,
+      "fewshot_seq_len": 208,
+      "compact_seq_len": 16,
+      "token_overhead_ratio": 13.0,
+      "fewshot_prefill_ms": 34.09087668173015,
+      "compact_prefill_ms": 7.107734996825457,
+      "prefill_speedup": 4.79630665703719,
+      "fewshot_kv_cache_kb": 6656.0,
+      "compact_kv_cache_kb": 512.0,
+      "kv_cache_reduction_pct": 92.3076923076923,
+      "unadapted_sample_output": "<unk:295><unk:596><unk:550><unk:343><unk:550><unk:343><unk:550><unk:343><unk:550><unk:343><unk:550><unk:343><unk:193><unk:83>",
+      "unadapted_valid_json": false
+    },
+    "02_preparing_domain_dataset_masking": {
+      "batch_shape": [
+        12,
+        32
+      ],
+      "jit_trace_count": 2,
+      "wasted_prompt_token_share_pct": 40.42553191489361,
+      "initial_completion_loss": 7.105162620544434,
+      "initial_completion_acc_pct": 0.0,
+      "unmasked_completion_loss": 0.06774304807186127,
+      "unmasked_completion_acc_pct": 100.0,
+      "masked_completion_loss": 0.045623596757650375,
+      "masked_completion_acc_pct": 100.0,
+      "loss_improvement_ratio": 1.484824776649475
+    },
+    "03_lora_adapters_in_flax_nnx": {
+      "base_params": 3672320,
+      "lora_params": 77824,
+      "total_params": 3750144,
+      "trainable_ratio_pct": 2.075226977950713,
+      "reduction_pct": 97.92477302204928,
+      "lora_rank": 4,
+      "steps": 45,
+      "loss_before": 7.16532039642334,
+      "loss_step_20": 0.5186219215393066,
+      "loss_after": 0.17091724276542664,
+      "max_base_weight_diff": 0.0,
+      "max_lora_weight_diff": 0.3582848906517029,
+      "base_weights_frozen_bitwise": true,
+      "lora_weights_updated": true
+    },
+    "04_structured_output_validation_eval": {
+      "before_lora": {
+        "num_cases": 12,
+        "json_parse_rate_pct": 0.0,
+        "schema_valid_rate_pct": 0.0,
+        "field_accuracy_pct": 0.0,
+        "exact_match_rate_pct": 0.0
+      },
+      "after_lora": {
+        "num_cases": 12,
+        "json_parse_rate_pct": 100.0,
+        "schema_valid_rate_pct": 100.0,
+        "field_accuracy_pct": 100.0,
+        "exact_match_rate_pct": 100.0
+      },
+      "sample_records": [
+        {
+          "incident_text": "alerta critica pasarela pagos timeout cobros tarjeta produccion urgente",
+          "expected_json": "{\"sev\":\"P1\",\"svc\":\"pagos\",\"act\":\"rollback\"}",
+          "decoded_output": "{\"sev\":\"P1\",\"svc\":\"pagos\",\"act\":\"rollback\"}",
+          "schema_valid": true,
+          "exact_match": true
+        },
+        {
+          "incident_text": "error sincronizacion cache pagos latencia moderada api gateway",
+          "expected_json": "{\"sev\":\"P2\",\"svc\":\"pagos\",\"act\":\"cache\"}",
+          "decoded_output": "{\"sev\":\"P2\",\"svc\":\"pagos\",\"act\":\"cache\"}",
+          "schema_valid": true,
+          "exact_match": true
+        },
+        {
+          "incident_text": "fallo critico servicio auth tokens jwt rechazados clientes produccion",
+          "expected_json": "{\"sev\":\"P1\",\"svc\":\"auth\",\"act\":\"rollback\"}",
+          "decoded_output": "{\"sev\":\"P1\",\"svc\":\"auth\",\"act\":\"rollback\"}",
+          "schema_valid": true,
+          "exact_match": true
+        }
+      ]
+    },
+    "05_merge_weights_and_serve_endpoint": {
+      "lora_params_before_merge": 77824,
+      "lora_params_after_merge": 0,
+      "merged_total_params": 3672320,
+      "max_logits_abs_diff": 9.953975677490234e-06,
+      "unmerged_forward_ms": 11.657465482130647,
+      "merged_forward_ms": 9.834886914385216,
+      "merge_inference_speedup": 1.185317694408829,
+      "merged_exact_match_rate_pct": 100.0,
+      "http_status": 200,
+      "http_response": {
+        "status": "ok",
+        "triage": {
+          "sev": "P1",
+          "svc": "pagos",
+          "act": "rollback"
+        },
+        "raw_completion": "{\"sev\":\"P1\",\"svc\":\"pagos\",\"act\":\"rollback\"}",
+        "schema_valid": true,
+        "inference_ms": 35.6273,
+        "serving_mode": "merged_single_branch_xla"
+      }
+    }
+  },
+  "all_checks_passed": true
+}
