@@ -1,11 +1,19 @@
 """Experiment 04: Deterministic Structured Output Evaluation (Schema Validation + Exact Match).
 
 Treats foundational model evaluation as a deterministic Software Engineering integration
-test suite over 12 Spanish operational incident reports (6 primary templates + 6 reordered
-paraphrases), measuring before and after LoRA adaptation:
+test suite, measuring before and after LoRA adaptation:
   1. Valid JSON syntax rate (`json.loads`).
   2. Strict schema & enum compliance (`{"sev", "svc", "act"}`).
   3. Field-level extraction accuracy and full-record Exact Match.
+
+Two honest caveats are printed with the results:
+  - The 12-case suite IS the training set (6 reports + 6 reorderings of the same words), so
+    12/12 shows the contract was learned and the pipeline works, not that it generalizes.
+    `HELDOUT_INCIDENTS` adds 6 reports that are not in training (same 64-word vocabulary,
+    new word order, some words dropped) as a small, separate check.
+  - "Before LoRA" is the same toy model with random weights and no examples in the prompt,
+    a deliberately weak baseline. Decoding is greedy with no grammar mask, so a valid JSON
+    comes from the weights alone.
 """
 
 from __future__ import annotations
@@ -24,6 +32,34 @@ ALLOWED_SEVERITIES = frozenset({"P1", "P2", "P3"})
 ALLOWED_SERVICES = frozenset({"pagos", "auth", "db"})
 ALLOWED_ACTIONS = frozenset({"rollback", "escalar", "cache"})
 REQUIRED_KEYS = frozenset({"sev", "svc", "act"})
+
+# Reports that are NOT in the training set: same vocabulary, new word order, words dropped.
+HELDOUT_INCIDENTS: tuple[tuple[str, dict[str, str]], ...] = (
+    (
+        "timeout cobros tarjeta pasarela pagos alerta critica",
+        {"sev": "P1", "svc": "pagos", "act": "rollback"},
+    ),
+    (
+        "latencia moderada cache pagos error sincronizacion",
+        {"sev": "P2", "svc": "pagos", "act": "cache"},
+    ),
+    (
+        "tokens jwt rechazados fallo critico auth produccion",
+        {"sev": "P1", "svc": "auth", "act": "rollback"},
+    ),
+    (
+        "sesion expiracion aviso login reintento auth",
+        {"sev": "P3", "svc": "auth", "act": "escalar"},
+    ),
+    (
+        "corrupcion indice db caida nodo primario urgente",
+        {"sev": "P1", "svc": "db", "act": "rollback"},
+    ),
+    (
+        "bloqueo conexiones replica lectura lenta db disco",
+        {"sev": "P2", "svc": "db", "act": "escalar"},
+    ),
+)
 
 
 def _load_module(name: str, filename: str):
@@ -89,10 +125,16 @@ def greedy_generate_batch(
     return buffer[:, prompt_len : total_len]
 
 
-def evaluate_model_on_suite(model: Any) -> dict[str, Any]:
-    """Runs the deterministic software test suite across all 12 Spanish incident examples."""
+def evaluate_model_on_suite(model: Any, heldout: bool = False) -> dict[str, Any]:
+    """Runs the deterministic test suite: the 12 training examples, or the 6 held-out reports."""
     exp01 = _load_module("exp01_prompting", "01_when_prompting_hits_a_wall.py")
-    dataset = exp01.DOMAIN_INCIDENT_DATASET
+    if heldout:
+        dataset = tuple(
+            exp01.IncidentExample(category_id=-1, incident_text=t, expected_dict=d)
+            for t, d in HELDOUT_INCIDENTS
+        )
+    else:
+        dataset = exp01.DOMAIN_INCIDENT_DATASET
     prompt_rows = [exp01.encode_prompt_tokens(ex.incident_text, prompt_len=16) for ex in dataset]
     prompt_batch = jnp.array(prompt_rows, dtype=jnp.int32)
 
@@ -140,7 +182,11 @@ def evaluate_model_on_suite(model: Any) -> dict[str, Any]:
         )
 
     return {
+        "split": "heldout" if heldout else "train",
         "num_cases": total,
+        "json_parse_count": json_parse_count,
+        "schema_valid_count": schema_valid_count,
+        "exact_match_count": exact_matches,
         "json_parse_rate_pct": (json_parse_count / total) * 100.0,
         "schema_valid_rate_pct": (schema_valid_count / total) * 100.0,
         "field_accuracy_pct": (field_matches / (total * 3)) * 100.0,
@@ -159,24 +205,42 @@ def run_before_after_evaluation() -> dict[str, Any]:
 
     adapted_model, lora_train_metrics = exp03.train_domain_lora_adapter(lora_rank=4, steps=45)
     after_eval = evaluate_model_on_suite(adapted_model)
+    heldout_before = evaluate_model_on_suite(base_model, heldout=True)
+    heldout_after = evaluate_model_on_suite(adapted_model, heldout=True)
 
     return {
         "before_lora": before_eval,
         "after_lora": after_eval,
+        "heldout_before_lora": heldout_before,
+        "heldout_after_lora": heldout_after,
         "lora_train_metrics": lora_train_metrics,
         "adapted_model": adapted_model,
     }
+
+
+def _fields(raw: str) -> str:
+    """`{"sev":"P1","svc":"pagos","act":"rollback"}` -> `P1 pagos rollback` (or the raw text)."""
+    try:
+        d = json.loads(raw)
+        return f"{d['sev']} {d['svc']} {d['act']}"
+    except Exception:
+        return raw[:24]
 
 
 def main() -> None:
     res = run_before_after_evaluation()
     b = res["before_lora"]
     a = res["after_lora"]
+    hb = res["heldout_before_lora"]
+    ha = res["heldout_after_lora"]
 
     print("=" * 78)
-    print(" Experiment 04: Deterministic Structured Output Evaluation Suite (12 Cases)")
+    print(" Experiment 04: Deterministic Structured Output Evaluation (greedy, no grammar mask)")
     print("=" * 78)
-    print(" Metric                      | Before LoRA (Base) | After LoRA (rank=4)")
+    print(" 12 cases = the 12 TRAINING examples (6 reports + 6 reorderings)")
+    print(" Before = same toy model, random weights, no examples in the prompt (weak baseline)")
+    print("-" * 78)
+    print(" Metric (12 train cases)     | Before LoRA (Base) | After LoRA (rank=4)")
     print("-" * 78)
     print(
         f" Valid JSON Syntax Rate      | {b['json_parse_rate_pct']:16.1f}%  | "
@@ -195,14 +259,28 @@ def main() -> None:
         f"{a['exact_match_rate_pct']:17.1f}%"
     )
     print("-" * 78)
-    for idx in range(3):
-        rec_b = b["records"][idx]
-        rec_a = a["records"][idx]
-        print(f" Sample #{idx + 1} Input    : {rec_a['incident_text']}")
-        print(f"   Before LoRA Out  : {rec_b['decoded_output']!r}")
+    rec_b = b["records"][0]
+    rec_a = a["records"][0]
+    print(f" Train #1 Input   : {rec_a['incident_text']}")
+    print(f"   Before LoRA    : {rec_b['decoded_output'][:52]}...")
+    print(f"   After LoRA     : {rec_a['decoded_output']} (exact={rec_a['exact_match']})")
+    print("-" * 78)
+    print(
+        f" Held-out (not in training, {ha['num_cases']} reports, same vocabulary, new order)"
+    )
+    print(
+        f" Held-out Schema Valid       | {hb['schema_valid_count']:>14}/{hb['num_cases']}  | "
+        f"{ha['schema_valid_count']:>15}/{ha['num_cases']}"
+    )
+    print(
+        f" Held-out Exact Match        | {hb['exact_match_count']:>14}/{hb['num_cases']}  | "
+        f"{ha['exact_match_count']:>15}/{ha['num_cases']}"
+    )
+    for rec in ha["records"]:
+        mark = "OK  " if rec["exact_match"] else "MISS"
         print(
-            f"   After LoRA Out   : {rec_a['decoded_output']} "
-            f"(schema_valid={rec_a['schema_valid']}, exact_match={rec_a['exact_match']})"
+            f"   {mark} {rec['incident_text'][:34]:<34} | got {_fields(rec['decoded_output'])}"
+            f" | want {_fields(rec['expected_json'])}"
         )
     print("=" * 78)
 

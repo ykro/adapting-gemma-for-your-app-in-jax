@@ -1,15 +1,19 @@
-==============================================================================
+==========================================================================================================
 THE OUTSIDE JUDGE — Adapting Gemma for Your App in JAX Verification Report
-==============================================================================
+==========================================================================================================
 Runtime : Python 3.12.11 | JAX 0.12.0.1 | Flax 0.12.12 | Backend: cpu
-------------------------------------------------------------------------------
-Experiment                         | Baseline / Before  | Adapted / JAX      | Verification
-------------------------------------------------------------------------------
-01. Few-Shot vs Compact Prefill    |  34.09 ms (208t)   |   7.11 ms (16t)    | 4.80x (-92.3% KV)
-02. Prompt vs Completion Masking   | 0.0677 CE loss     | 0.0456 CE loss     | 1.48x (100% JSON)
-03. Surgical LoRA (rank=4, NNX)    | 3,750,144 params   | 77,824 trainable   | -97.92% (Δbase=0.0)
-04. Deterministic JSON Test Suite  |   0.0% exact match | 100.0% exact match | 12/12 Schema PASS
-05. Merge W_base + A@B & HTTP API  |  11.66 ms (LoRA)   |   9.83 ms (Merged) | Δ=9.95e-06 (HTTP 200)
-------------------------------------------------------------------------------
+CPU     : Apple M1 Max (10 cores) | 1-min load average 10.23 before, 9.64 after
+Model   : toy Gemma-style decoder, 3.67M params, random base weights (not a checkpoint)
+----------------------------------------------------------------------------------------------------------
+Experiment                    | Baseline        | Adapted/JAX  | Result       | Fair baseline / note
+----------------------------------------------------------------------------------------------------------
+01. Prefill 208t vs 16t (jit) | 36.96 ms        | 6.76 ms      | 5.47x        | same weights, no LoRA; KV -92.3% (formula)
+02. JSON loss: no mask/mask   | 0.0677 CE       | 0.0456 CE    | 1.48x        | both 100% JSON tokens; 1 seed, train
+03. LoRA rank=4 trainable     | 3,750,144       | 77,824       | 2.08%        | base diff = 0.0 (bitwise)
+04. JSON suite, exact match   | 0/12 train      | 12/12 train  | 12/12 schema | held-out 3/6 exact, 6/6 schema
+05. Merged vs two-branch LoRA | 12.43 ms        | 10.58 ms     | 1.17x        | dots 37 = base 37; diff 9.95e-06
+----------------------------------------------------------------------------------------------------------
+Local HTTP POST /v1/triage (127.0.0.1, nothing deployed): HTTP 200
+Times: median per call after a warmup; they vary run to run and with machine load.
 Saved JSON report to: benchmarks/latest_results.json
 ALL DETERMINISTIC ADAPTATION CHECKS PASSED.

@@ -1,65 +1,87 @@
-# Cómo Adaptar un Foundational Model (`Gemma`) a tu Aplicación con `Flax NNX` y `LoRA`
+# Cómo Adaptar un Foundational Model estilo `Gemma` a tu Aplicación con `Flax NNX` y `LoRA`
 
-- **Por qué es relevante:** Cuando una aplicación en producción exige respuestas estructuradas estrictas (como convertir reportes de incidentes operativos en español hacia comandos JSON tipados), el *few-shot prompting* repetitivo multiplica por `13.0x` el costo en tokens de entrada y el tamaño del `KV Cache` en cada request. Adaptar los pesos con `Flax NNX` y `LoRA` permite eliminar los ejemplos del prompt, congelar el `97.92%` del modelo base (`Δbase = 0.0`) y fusionar matemáticamente `W_merged = W_base + A @ B` para servir en `Cloud Run` con cero latencia extra.
-- **Para quién es:** Ingenieros de software, desarrolladores backend y arquitectos de sistemas que buscan integrar y adaptar modelos fundacionales abiertos (`Gemma`) dentro de microservicios reales usando `JAX` y `Flax NNX`.
-- **Quién debería verlo:** Equipos de ingeniería que operan clasificadores de tickets, extracción de entidades tipadas, ruteo de comandos operativos o validación de esquemas JSON y desean reemplazar prompts largos y frágiles por adaptadores deterministas verificados con `pytest`.
-- **Serie completa:** Quinto repositorio práctico (**B5**) de la guía [Field Guide: De Software Dev a Machine Learning y Foundational Models con JAX](https://github.com/ykro/jax-ml-for-software-devs-field-guide) (y puente directo hacia la [Serie A — JAX & OpenXLA Field Guide](https://github.com/ykro/jax-openxla-field-guide)).
+- **Por qué es relevante:** Cuando una aplicación exige respuestas estructuradas estrictas (por ejemplo, convertir reportes de incidentes en español en un JSON con severidad, servicio y acción), el *few-shot prompting* repite los mismos ejemplos en cada request: `13x` más tokens de entrada y `13x` más `KV-cache`. Este repositorio recorre la otra ruta de punta a punta con `Flax NNX`: medir el costo del prompt largo, preparar los datos con *completion-only loss masking*, entrenar un adaptador `nnx.LoRA` sin tocar un bit del modelo base, evaluarlo como un test suite y fusionar `W_merged = W_base + A @ B` para servirlo desde un servidor HTTP local.
+- **Qué modelo usa:** un decoder **pequeño estilo Gemma** (`GemmaForCausalLM` en `experiments/01`): 4 bloques, `d_model` 256, `RMSNorm`, Grouped-Query Attention con RoPE y `GeGLU`, **3,672,320 parámetros con pesos aleatorios** y un vocabulario hecho a mano de 64 palabras. **No carga un checkpoint real de Gemma.** Así todo corre en segundos en una laptop y de forma reproducible. La mecánica es la misma que usarías con un Gemma de verdad; las cifras de calidad no se trasladan.
+- **Para quién es:** Ingenieros de software y desarrolladores backend que quieren entender qué pasa al adaptar un modelo abierto a una tarea con contrato de salida, con `JAX` y `Flax NNX`.
+- **Serie completa:** Quinta entrega (**B5**) de la Serie B [JAX & ML for Software Devs Field Guide](https://github.com/ykro/jax-ml-for-software-devs-field-guide) (compañera de la Serie A [JAX & OpenXLA Field Guide](https://github.com/ykro/jax-openxla-field-guide)).
 
 ---
 
 ## Arquitectura y Modelo Mental
 
-### 1. Cuándo el *Few-Shot Prompting* Toca Techo (`208` tokens vs `16` tokens)
+### 1. Cuándo el *Few-Shot Prompting* Toca Techo (`208` tokens contra `16`)
 
-En un microservicio que recibe miles de reportes en español por hora, adjuntar 6 ejemplos JSON en cada llamada obliga a procesar `208` tokens de prefill por un reporte de apenas `16` tokens (`13.0x` más tokens facturados y `6656.0 KB` de `KV Cache` por `batch`). Al trasladar las reglas del dominio a los pesos mediante `LoRA`, el prompt baja a `16` tokens, ahorra el `92.31%` de memoria de `KV Cache` y acelera el prefill **4.80x**.
+Seis ejemplos completos ocupan `192` tokens y el reporte `16`, así que cada request con ejemplos lleva `208` tokens contra `16` sin ellos (`13x`). El experimento 01 corre el **mismo modelo con los mismos pesos**, compilado con `@nnx.jit`, sobre un `batch` de 8 reportes con las dos longitudes; LoRA no participa en esa medición. El prefill corto sale varias veces más rápido (la cifra exacta está en la tabla del juez y cambia entre corridas) y el tiempo baja menos que los tokens. El `KV-cache` se calcula de las formas: pasa de `6656 KB` a `512 KB` (`-92.31%`, exactamente `1 - 16/208`). Lo que aporta LoRA es que un prompt de 16 tokens, sin ejemplos, alcance para producir el JSON correcto.
 
-![Comparación entre few-shot prompting y modelo Gemma adaptado con LoRA](diagrams/01-fewshot-prompt-vs-lora.svg)
+![Comparación entre few-shot prompting y modelo adaptado con LoRA](diagrams/01-fewshot-prompt-vs-lora.svg)
 
 ### 2. Ingeniería de Datos y `Completion-Only Loss Masking`
 
-Al empaquetar pares `(instrucción en español, respuesta JSON)` en un `batch` estático de forma `(12, 32)` evitamos recompilaciones dinámicas en `@nnx.jit` (`0` recompilaciones tras el primer trace). Aplicando una máscara `loss_mask = 0.0` sobre los tokens del prompt y del padding (`40.43%` de tokens ignorados) y `loss_mask = 1.0` exclusivamente sobre los `14` tokens de la respuesta JSON (`{"sev":"P1","svc":"pagos","act":"rollback"}<eos>`), el optimizador concentra el `100%` del gradiente en aprender el contrato de salida, logrando **1.48x menor pérdida** sobre el JSON objetivo en el mismo número de pasos.
+Cada ejemplo se empaqueta en una forma estática `(12, 32)`: 16 posiciones de reporte, 14 del JSON con su `<eos>` y 2 de padding. Como la forma nunca cambia, `@nnx.jit` traza una vez por modelo (2 trazas en 24 pasos, sin retrazar). Sin máscara, el `40.43%` de los tokens supervisados (114 de 282) son del prompt. Con `loss_mask = 0.0` sobre el prompt y el padding y `1.0` sobre los 14 tokens del JSON, el gradiente solo empuja hacia el contrato de salida. Dos copias idénticas del modelo completo (misma semilla, 12 pasos, sin LoRA), evaluadas con la misma vara (la pérdida sobre los tokens del JSON), terminan con `0.0677` sin máscara y `0.0456` con máscara: `1.48x` menor. Las dos aciertan el `100%` de los tokens del JSON, así que la diferencia está en la confianza del modelo, con una sola semilla y sobre los 12 ejemplos de entrenamiento.
 
 ![Flujo de empaquetado estático y Completion-Only Loss Masking](diagrams/02-completion-only-loss-masking.svg)
 
-### 3. Adaptadores Quirúrgicos `nnx.LoRA` (`rank=4`) y Fusión Matemática `W_merged = W_base + A @ B`
+### 3. Adaptadores `nnx.LoRA` (`rank=4`) y Fusión `W_merged = W_base + A @ B`
 
-Durante el entrenamiento con `Flax NNX`, envolvemos las proyecciones de atención (`q_proj`, `k_proj`, `v_proj`, `o_proj`) y del bloque `GeGLU` (`gate_proj`, `up_proj`, `down_proj`) con `nnx.LoRA`. Filtrando el estado con `nnx.LoRAParam`, congelamos `3,672,320` parámetros base (`97.92%` intactos, `max_base_diff == 0.0`) y actualizamos únicamente `77,824` escalares (`2.08%`). Al terminar el entrenamiento, plegamos algebraicamente `W_merged = W_base + (lora_a @ lora_b)` de vuelta en cada capa `nnx.Linear` para servir una sola rama en `Cloud Run` (`--min-instances=0`) con paridad numérica (`max_diff = 9.95e-06 < 1e-5`) y **1.31x** menor latencia de inferencia frente al grafo con ramas separadas.
+Envolvemos con `nnx.LoRA` las 7 proyecciones de cada bloque (`q_proj`, `k_proj`, `v_proj`, `o_proj`, `gate_proj`, `up_proj`, `down_proj`). El filtro `nnx.LoRAParam` va al optimizador (`wrt`) y al gradiente (`nnx.DiffState`), así que solo se entrenan `77,824` escalares (`2.08%`) y los `3,672,320` del modelo base quedan idénticos bit a bit (`max_base_diff = 0.0`). La proporción depende del rango y de qué capas se envuelven; los embeddings y el `lm_head` no se adaptan. Al final se suma `lora_a @ lora_b` a la matriz de pesos de cada `nnx.Linear` y se quita el envoltorio: cero `LoRAParam`, el mismo número de parámetros que el base, logits a menos de `1e-5` (redondeo de float32 al sumar en otro orden) y un programa compilado con **los mismos `dot` que el modelo base** (37 contra 93 del modelo con dos ramas). El experimento 05 cronometra el fusionado contra las dos ramas y levanta un servidor HTTP **local** (`127.0.0.1`) con `POST /v1/triage`.
 
-![Entrenamiento con nnx.LoRA y fusión matemática de pesos para producción](diagrams/03-lora-train-and-weight-merge.svg)
+![Entrenamiento con nnx.LoRA y fusión matemática de pesos](diagrams/03-lora-train-and-weight-merge.svg)
 
 ---
 
 ## Resultados Reales de Verificación (`verify_adaptation.py`)
 
-Benchmarks deterministas ejecutados con Python `3.12.11`, JAX `0.12.0.1` y Flax `0.12.12`:
+Este bloque lo reescribe `verify_adaptation.py` en cada corrida con los mismos valores que guarda en `benchmarks/latest_results.json`. La salida de cada experimento está en `benchmarks/experiment_outputs/` (`make experiments`).
 
-| Experimento | Archivo | Baseline / Antes de LoRA | Gemma Adaptado (`Flax NNX`) | Verificación / Ganancia |
+<!-- judge:start -->
+
+Corrida del juez en Apple M1 Max (10 núcleos), Python 3.12.11, JAX 0.12.0.1, Flax 0.12.12, backend `cpu`. Carga del sistema (load average de 1 min): 10.23 al empezar. Tiempos = mediana por llamada después de una llamada de calentamiento. Modelo de juguete estilo Gemma con pesos base aleatorios.
+
+| Experimento | Baseline | Adaptado / JAX | Resultado | Baseline justo / nota |
 | :--- | :--- | :--- | :--- | :--- |
-| **01. Few-Shot vs Compact Prefill** | `experiments/01_when_prompting_hits_a_wall.py` | `34.09 ms` (`208` tokens, `6656 KB` KV) | `7.11 ms` (`16` tokens, `512 KB` KV) | **4.80x speedup** (**-92.31% KV Cache**, `13.0x` menos tokens) |
-| **02. Prompt vs Completion Masking** | `experiments/02_preparing_domain_dataset_masking.py` | `0.0677` CE loss (sin máscara de prompt) | `0.0456` CE loss (`loss_mask=1` en JSON) | **1.48x menor loss** (`100%` exactitud tokens JSON, `0` recompiles) |
-| **03. Surgical LoRA (`rank=4`, NNX)** | `experiments/03_lora_adapters_in_flax_nnx.py` | `3,750,144` parámetros totales | `77,824` entrenables (`2.08%`) | **97.92% reducción** (`max_base_diff = 0.00000000`) |
-| **04. Deterministic JSON Test Suite** | `experiments/04_structured_output_validation_eval.py` | `0.0%` JSON válido / `0.0%` Exact Match | `100.0%` JSON válido / `100.0%` Exact Match | **12/12 casos PASS** (sintaxis, esquema, enums y campos) |
-| **05. Merge `W_base + A@B` & HTTP API** | `experiments/05_merge_weights_and_serve_endpoint.py` | `11.66 ms` (rama doble `nnx.LoRA`) | `9.83 ms` (`W_merged` en `nnx.Linear`) | **`Δ = 9.95e-06 < 1e-5`**, `0` `LoRAParam`, `POST /v1/triage` **HTTP 200** |
+| **01. Prefill 208t vs 16t (jit)** | `36.96 ms` | `6.76 ms` | **5.47x** | same weights, no LoRA; KV -92.3% (formula) |
+| **02. JSON loss: no mask/mask** | `0.0677 CE` | `0.0456 CE` | **1.48x** | both 100% JSON tokens; 1 seed, train |
+| **03. LoRA rank=4 trainable** | `3,750,144` | `77,824` | **2.08%** | base diff = 0.0 (bitwise) |
+| **04. JSON suite, exact match** | `0/12 train` | `12/12 train` | **12/12 schema** | held-out 3/6 exact, 6/6 schema |
+| **05. Merged vs two-branch LoRA** | `12.43 ms` | `10.58 ms` | **1.17x** | dots 37 = base 37; diff 9.95e-06 |
 
 Salida íntegra de terminal generada por `verify_adaptation.py`:
 
 ```text
-==============================================================================
+==========================================================================================================
 THE OUTSIDE JUDGE — Adapting Gemma for Your App in JAX Verification Report
-==============================================================================
+==========================================================================================================
 Runtime : Python 3.12.11 | JAX 0.12.0.1 | Flax 0.12.12 | Backend: cpu
-------------------------------------------------------------------------------
-Experiment                         | Baseline / Before  | Adapted / JAX      | Verification
-------------------------------------------------------------------------------
-01. Few-Shot vs Compact Prefill    |  34.09 ms (208t)   |   7.11 ms (16t)    | 4.80x (-92.3% KV)
-02. Prompt vs Completion Masking   | 0.0677 CE loss     | 0.0456 CE loss     | 1.48x (100% JSON)
-03. Surgical LoRA (rank=4, NNX)    | 3,750,144 params   | 77,824 trainable   | -97.92% (Δbase=0.0)
-04. Deterministic JSON Test Suite  |   0.0% exact match | 100.0% exact match | 12/12 Schema PASS
-05. Merge W_base + A@B & HTTP API  |  11.66 ms (LoRA)   |   9.83 ms (Merged) | Δ=9.95e-06 (HTTP 200)
-------------------------------------------------------------------------------
+CPU     : Apple M1 Max (10 cores) | 1-min load average 10.23 before, 9.64 after
+Model   : toy Gemma-style decoder, 3.67M params, random base weights (not a checkpoint)
+----------------------------------------------------------------------------------------------------------
+Experiment                    | Baseline        | Adapted/JAX  | Result       | Fair baseline / note
+----------------------------------------------------------------------------------------------------------
+01. Prefill 208t vs 16t (jit) | 36.96 ms        | 6.76 ms      | 5.47x        | same weights, no LoRA; KV -92.3% (formula)
+02. JSON loss: no mask/mask   | 0.0677 CE       | 0.0456 CE    | 1.48x        | both 100% JSON tokens; 1 seed, train
+03. LoRA rank=4 trainable     | 3,750,144       | 77,824       | 2.08%        | base diff = 0.0 (bitwise)
+04. JSON suite, exact match   | 0/12 train      | 12/12 train  | 12/12 schema | held-out 3/6 exact, 6/6 schema
+05. Merged vs two-branch LoRA | 12.43 ms        | 10.58 ms     | 1.17x        | dots 37 = base 37; diff 9.95e-06
+----------------------------------------------------------------------------------------------------------
+Local HTTP POST /v1/triage (127.0.0.1, nothing deployed): HTTP 200
+Times: median per call after a warmup; they vary run to run and with machine load.
 Saved JSON report to: benchmarks/latest_results.json
 ALL DETERMINISTIC ADAPTATION CHECKS PASSED.
 ```
+
+<!-- judge:end -->
+
+### Cómo leer estas cifras
+
+- **Modelo de juguete.** Todo corre sobre un decoder estilo Gemma de 3.7 M parámetros con pesos base aleatorios y un vocabulario de 64 palabras. La mecánica (prefill, máscara, `nnx.LoRA`, fusión, evaluación) es la misma que con un Gemma real; las cifras de calidad no se trasladan.
+- **Qué es mediana tras calentamiento.** Cada tiempo es la mediana de varias llamadas (25 en el 01, 35 en el 05), medida después de una primera llamada que traza y compila y que se reporta aparte (`First Call (trace+compile)`). Las llamadas terminan en `block_until_ready()` para medir el cálculo completo y no solo el *dispatch* asíncrono.
+- **Qué compara el 01.** El mismo modelo y los mismos pesos con dos longitudes de prompt. LoRA no participa. Toda la ganancia viene de mandar menos tokens. El `KV-cache` sale de una fórmula sobre las formas, no de una medición. Un servidor de inferencia que cachea un prefijo repetido recortaría parte de este costo; aquí no se mide.
+- **El 02 es una ventaja modesta.** Una sola semilla, 12 pasos, entrenamiento completo (sin LoRA), evaluado sobre los tokens del JSON de los mismos 12 ejemplos. Las dos versiones aciertan todos los tokens; la máscara deja la pérdida más baja.
+- **El 12/12 del 04 es sobre el set de entrenamiento.** Los 12 casos son los 6 reportes de entrenamiento y 6 reordenamientos de las mismas palabras, y el «antes» es el modelo con pesos aleatorios y sin ejemplos, un baseline débil a propósito. Muestra que el contrato se aprendió y que el pipeline funciona de punta a punta. La generalización queda sin demostrar: en 6 reportes que no están en el entrenamiento (mismo vocabulario, otro orden, algunas palabras menos) el JSON sale válido en todos, pero el contenido acierta en menos (ver la columna de baseline justo). La decodificación es greedy, sin máscara de gramática.
+- **«Sin latencia extra» son dos comparaciones.** Contra el modelo con dos ramas de LoRA, el fusionado se cronometra (fila 05). Contra el modelo base original se verifica por estructura: el HLO optimizado de los dos tiene el mismo número de `dot` y los mismos parámetros. Esa parte no se cronometra.
+- **Paridad al borde.** La diferencia de logits queda justo por debajo del umbral `1e-5` del juez. En un acelerador que multiplica en f32 con menos precisión por defecto (TPU), ese umbral habría que revisarlo. No se probó.
+- **HTTP local.** El endpoint es un `HTTPServer` de la librería estándar en `127.0.0.1`, dentro del experimento 05. No hay ningún servicio desplegado.
+- **Variabilidad.** Las verificaciones (conteos, máscaras, `Δbase = 0.0`, esquemas, paridad, `dot`, HTTP 200) son deterministas en CPU. Los tiempos cambian entre corridas y con la carga de la máquina; el juez registra el modelo de CPU y el *load average* al empezar y al terminar. Son cifras de una sola corrida: tómalas como orden de magnitud, no al decimal.
 
 ---
 
@@ -68,25 +90,26 @@ ALL DETERMINISTIC ADAPTATION CHECKS PASSED.
 ```text
 .
 ├── benchmarks/
-│   ├── latest_results.json                             # Métricas verificadas por verify_adaptation.py
-│   └── terminal_output.txt                             # Salida íntegra del Outside Judge
+│   ├── latest_results.json                             # Métricas de la última corrida de verify_adaptation.py
+│   ├── terminal_output.txt                             # Salida íntegra del Outside Judge
+│   └── experiment_outputs/                             # Salida de cada experimento (make experiments)
 ├── diagrams/
 │   ├── 01-fewshot-prompt-vs-lora.{html,svg,png}
 │   ├── 02-completion-only-loss-masking.{html,svg,png}
 │   └── 03-lora-train-and-weight-merge.{html,svg,png}
 ├── experiments/
-│   ├── 01_when_prompting_hits_a_wall.py                # Latencia de prefill, KV cache y límites del few-shot prompting
+│   ├── 01_when_prompting_hits_a_wall.py                # Tokens, KV-cache y prefill: few-shot (208) contra prompt compacto (16)
 │   ├── 02_preparing_domain_dataset_masking.py          # Batches estáticos (12, 32) y Completion-Only Loss Masking
-│   ├── 03_lora_adapters_in_flax_nnx.py                 # Inyección quirúrgica nnx.LoRA (rank=4) y congelamiento del 97.92%
-│   ├── 04_structured_output_validation_eval.py         # Suite de evaluación determinista (JSON Schema + Exact Match)
-│   └── 05_merge_weights_and_serve_endpoint.py          # Fusión W_merged = W_base + A @ B y microservicio HTTP /v1/triage
+│   ├── 03_lora_adapters_in_flax_nnx.py                 # nnx.LoRA (rank=4) en 28 proyecciones, base congelada bit a bit
+│   ├── 04_structured_output_validation_eval.py         # Suite determinista (JSON, esquema, exact match) + 6 reportes held-out
+│   └── 05_merge_weights_and_serve_endpoint.py          # Fusión W_base + A @ B, conteo de dot en el HLO y POST /v1/triage local
 ├── gcp/
-│   └── run_on_demand_adaptation.sh                     # Runner on-demand con auto-teardown (TPU v5e, GPU L4 y Cloud Run)
+│   └── run_on_demand_adaptation.sh                     # Runner on-demand con auto-teardown (TPU v5e y GPU L4)
 ├── tests/
 │   └── test_adaptation.py                              # Suite pytest determinista (5 tests)
 ├── Makefile
 ├── pyproject.toml
-└── verify_adaptation.py                                # El Outside Judge (aserciones de paridad, LoRA y endpoint HTTP)
+└── verify_adaptation.py                                # El Outside Judge
 ```
 
 ---
@@ -104,48 +127,42 @@ pip install --upgrade pip
 pip install -e ".[dev]"
 ```
 
-### 2. Recorrido guiado por los 5 experimentos (Orden recomendado)
+### 2. Recorrido guiado por los 5 experimentos
 
-Cada script es autocontenido, corre en pocos segundos en CPU, GPU o TPU y cubre una etapa del ciclo de adaptación de `Gemma` para una aplicación en español:
+Cada script es autocontenido y corre en segundos en CPU:
 
 ```bash
-# Paso 1 — Medir el costo en tokens (13.0x), KV cache y latencia del few-shot prompting frente a un prompt compacto
+# Paso 1 — Costo en tokens (13x), KV-cache y prefill del few-shot prompting contra un prompt compacto
 python experiments/01_when_prompting_hits_a_wall.py
 
-# Paso 2 — Empaquetar pares (instrucción, JSON) con padding estático y aplicar Completion-Only Loss Masking
+# Paso 2 — Empaquetar pares (reporte, JSON) con forma estática y aplicar Completion-Only Loss Masking
 python experiments/02_preparing_domain_dataset_masking.py
 
-# Paso 3 — Congelar el 97.92% del modelo e inyectar adaptadores nnx.LoRA (rank=4) entrenados con optax.adamw
+# Paso 3 — Congelar el modelo base e inyectar adaptadores nnx.LoRA (rank=4) entrenados con optax.adamw
 python experiments/03_lora_adapters_in_flax_nnx.py
 
-# Paso 4 — Evaluar el modelo antes y después de LoRA con una suite determinista de validación de esquemas JSON
+# Paso 4 — Evaluar antes y después de LoRA como un test suite (entrenamiento y held-out)
 python experiments/04_structured_output_validation_eval.py
 
-# Paso 5 — Fusionar matemáticamente W_merged = W_base + A @ B y levantar el endpoint HTTP POST /v1/triage
+# Paso 5 — Fusionar W_merged = W_base + A @ B y responder POST /v1/triage en un servidor local
 python experiments/05_merge_weights_and_serve_endpoint.py
+
+# Los cinco, guardando cada salida en benchmarks/experiment_outputs/
+make experiments
 ```
 
 ### 3. Verificación completa (Linter + Tests + Outside Judge)
 
 ```bash
-# Ejecutar únicamente el Outside Judge y regenerar benchmarks/latest_results.json
-python verify_adaptation.py
-
-# Ejecutar ruff, pytest (5 tests) y verify_adaptation.py en un solo comando
+# ruff, pytest (5 tests) y verify_adaptation.py en un solo comando
 make all
 ```
 
-### 4. Ejecución on-demand con auto-teardown en Google Cloud (`Cloud TPU v5e`, `Vertex AI L4` y `Cloud Run`)
+### 4. Ejecución on-demand con auto-teardown en Google Cloud (opcional)
 
-El script `gcp/run_on_demand_adaptation.sh` opera sobre el proyecto `ai-experiments-487722` y garantiza la destrucción automática de instancias de entrenamiento mediante `trap cleanup EXIT INT TERM`:
+`gcp/run_on_demand_adaptation.sh` corre `verify_adaptation.py` en una instancia on-demand de Cloud TPU v5e o en un Vertex AI Custom Job con GPU L4, y las destruye al terminar con `trap cleanup EXIT INT TERM`. Corre en tu propio proyecto de Google Cloud (variable `GCP_PROJECT_ID`). Las cifras de este README se midieron en CPU; no hay resultados publicados de TPU ni de GPU.
 
 ```bash
-# Ejecutar adaptación y verificación en una instancia on-demand de Cloud TPU v5e-1 (us-central1-a)
-make gcp-tpu
-
-# Ejecutar adaptación en un Vertex AI Custom Job on-demand con GPU NVIDIA L4
-make gcp-gpu
-
-# Desplegar el microservicio HTTP con pesos fusionados en Cloud Run (--min-instances=0)
-make gcp-cloudrun
+GCP_PROJECT_ID=YOUR_PROJECT_ID make gcp-tpu
+GCP_PROJECT_ID=YOUR_PROJECT_ID make gcp-gpu
 ```

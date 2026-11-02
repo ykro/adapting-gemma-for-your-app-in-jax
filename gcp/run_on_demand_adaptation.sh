@@ -1,19 +1,20 @@
 #!/usr/bin/env bash
-# On-demand Cloud TPU (v5litepod-1), Vertex AI GPU (NVIDIA L4), and Cloud Run (--min-instances=0)
-# runner with auto-teardown for adapting-gemma-for-your-app-in-jax.
-# Project: ai-experiments-487722
+# On-demand Cloud TPU (v5litepod-1) and Vertex AI GPU (NVIDIA L4) runner with auto-teardown
+# for adapting-gemma-for-your-app-in-jax. It runs verify_adaptation.py remotely; the results in
+# this repo were measured on CPU and no TPU/GPU results are published.
+# Project: your own (set GCP_PROJECT_ID)
+# Usage: GCP_PROJECT_ID=YOUR_PROJECT_ID bash gcp/run_on_demand_adaptation.sh [tpu|gpu]
 # Guarantees zero orphaned cloud resources via EXIT trap.
 
 set -euo pipefail
 
 export CLOUDSDK_METRICS_ENVIRONMENT="${CLOUDSDK_METRICS_ENVIRONMENT:+$CLOUDSDK_METRICS_ENVIRONMENT }datacloud.antigravity"
-PROJECT_ID="${GCP_PROJECT_ID:-ai-experiments-487722}"
+PROJECT_ID="${GCP_PROJECT_ID:?Set GCP_PROJECT_ID to your Google Cloud project id}"
 REGION="${GCP_REGION:-us-central1}"
 ZONE="${GCP_ZONE:-us-central1-a}"
 MODE="${1:-tpu}"
 TPU_NAME="gemma-lora-app-$(date +%s)"
 GPU_JOB_ID=""
-SERVICE_NAME="gemma-incident-triage-jax"
 
 cleanup() {
   if [[ "${MODE}" == "tpu" ]]; then
@@ -79,18 +80,7 @@ elif [[ "${MODE}" == "gpu" ]]; then
     --project="${PROJECT_ID}" \
     --region="${REGION}"
 
-elif [[ "${MODE}" == "cloudrun" ]]; then
-  echo "[1/1] Deploying merged Gemma JSON triage endpoint to Cloud Run with --min-instances=0..."
-  gcloud run deploy "${SERVICE_NAME}" \
-    --project="${PROJECT_ID}" \
-    --region="${REGION}" \
-    --source="." \
-    --min-instances=0 \
-    --max-instances=2 \
-    --cpu=2 \
-    --memory=2Gi \
-    --no-allow-unauthenticated
 else
-  echo "Usage: $0 [tpu|gpu|cloudrun]"
+  echo "Usage: $0 [tpu|gpu]"
   exit 1
 fi

@@ -5,18 +5,40 @@
     "flax": "0.12.12",
     "optax": "0.2.8",
     "numpy": "2.5.4",
-    "backend": "cpu"
+    "backend": "cpu",
+    "cpu_model": "Apple M1 Max",
+    "cpu_count": 10,
+    "load_average_before": [
+      10.23,
+      16.32,
+      17.18
+    ],
+    "load_average_after": [
+      9.64,
+      15.58,
+      16.88
+    ],
+    "timing": "median ms per call after one warmup call; varies run to run",
+    "model": "toy Gemma-style decoder (4 blocks, d_model 256), random base weights; not a Gemma checkpoint"
   },
   "experiments": {
     "01_when_prompting_hits_a_wall": {
       "backend": "cpu",
+      "model": "toy Gemma-style decoder, random weights (not a Gemma checkpoint)",
+      "model_params": 3672320,
+      "num_layers": 4,
+      "d_model": 256,
+      "timing": "median of 25 calls after one warmup call",
+      "num_iters": 25,
       "batch_size": 8,
       "fewshot_seq_len": 208,
       "compact_seq_len": 16,
       "token_overhead_ratio": 13.0,
-      "fewshot_prefill_ms": 34.09087668173015,
-      "compact_prefill_ms": 7.107734996825457,
-      "prefill_speedup": 4.79630665703719,
+      "fewshot_first_call_ms": 268.75016605481505,
+      "compact_first_call_ms": 266.1386248655617,
+      "fewshot_prefill_ms": 36.95958387106657,
+      "compact_prefill_ms": 6.758334115147591,
+      "prefill_speedup": 5.4687417403984675,
       "fewshot_kv_cache_kb": 6656.0,
       "compact_kv_cache_kb": 512.0,
       "kv_cache_reduction_pct": 92.3076923076923,
@@ -28,7 +50,10 @@
         12,
         32
       ],
+      "steps_per_model": 12,
       "jit_trace_count": 2,
+      "supervised_tokens_unmasked": 282,
+      "supervised_tokens_completion": 168,
       "wasted_prompt_token_share_pct": 40.42553191489361,
       "initial_completion_loss": 7.105162620544434,
       "initial_completion_acc_pct": 0.0,
@@ -45,7 +70,10 @@
       "trainable_ratio_pct": 2.075226977950713,
       "reduction_pct": 97.92477302204928,
       "lora_rank": 4,
+      "wrapped_projections": 28,
       "steps": 45,
+      "first_step_ms": 773.8766658585519,
+      "median_step_ms": 28.25833356473595,
       "loss_before": 7.16532039642334,
       "loss_step_20": 0.5186219215393066,
       "loss_after": 0.17091724276542664,
@@ -55,19 +83,50 @@
       "lora_weights_updated": true
     },
     "04_structured_output_validation_eval": {
+      "train_set_note": "the 12 cases are the 12 training examples",
       "before_lora": {
+        "split": "train",
         "num_cases": 12,
+        "json_parse_count": 0,
+        "schema_valid_count": 0,
+        "exact_match_count": 0,
         "json_parse_rate_pct": 0.0,
         "schema_valid_rate_pct": 0.0,
         "field_accuracy_pct": 0.0,
         "exact_match_rate_pct": 0.0
       },
       "after_lora": {
+        "split": "train",
         "num_cases": 12,
+        "json_parse_count": 12,
+        "schema_valid_count": 12,
+        "exact_match_count": 12,
         "json_parse_rate_pct": 100.0,
         "schema_valid_rate_pct": 100.0,
         "field_accuracy_pct": 100.0,
         "exact_match_rate_pct": 100.0
+      },
+      "heldout_before_lora": {
+        "split": "heldout",
+        "num_cases": 6,
+        "json_parse_count": 0,
+        "schema_valid_count": 0,
+        "exact_match_count": 0,
+        "json_parse_rate_pct": 0.0,
+        "schema_valid_rate_pct": 0.0,
+        "field_accuracy_pct": 0.0,
+        "exact_match_rate_pct": 0.0
+      },
+      "heldout_after_lora": {
+        "split": "heldout",
+        "num_cases": 6,
+        "json_parse_count": 6,
+        "schema_valid_count": 6,
+        "exact_match_count": 3,
+        "json_parse_rate_pct": 100.0,
+        "schema_valid_rate_pct": 100.0,
+        "field_accuracy_pct": 77.77777777777779,
+        "exact_match_rate_pct": 50.0
       },
       "sample_records": [
         {
@@ -91,17 +150,72 @@
           "schema_valid": true,
           "exact_match": true
         }
+      ],
+      "heldout_records": [
+        {
+          "incident_text": "timeout cobros tarjeta pasarela pagos alerta critica",
+          "expected_json": "{\"sev\":\"P1\",\"svc\":\"pagos\",\"act\":\"rollback\"}",
+          "decoded_output": "{\"sev\":\"P1\",\"svc\":\"auth\",\"act\":\"rollback\"}",
+          "schema_valid": true,
+          "exact_match": false
+        },
+        {
+          "incident_text": "latencia moderada cache pagos error sincronizacion",
+          "expected_json": "{\"sev\":\"P2\",\"svc\":\"pagos\",\"act\":\"cache\"}",
+          "decoded_output": "{\"sev\":\"P1\",\"svc\":\"auth\",\"act\":\"cache\"}",
+          "schema_valid": true,
+          "exact_match": false
+        },
+        {
+          "incident_text": "tokens jwt rechazados fallo critico auth produccion",
+          "expected_json": "{\"sev\":\"P1\",\"svc\":\"auth\",\"act\":\"rollback\"}",
+          "decoded_output": "{\"sev\":\"P1\",\"svc\":\"auth\",\"act\":\"rollback\"}",
+          "schema_valid": true,
+          "exact_match": true
+        },
+        {
+          "incident_text": "sesion expiracion aviso login reintento auth",
+          "expected_json": "{\"sev\":\"P3\",\"svc\":\"auth\",\"act\":\"escalar\"}",
+          "decoded_output": "{\"sev\":\"P1\",\"svc\":\"auth\",\"act\":\"escalar\"}",
+          "schema_valid": true,
+          "exact_match": false
+        },
+        {
+          "incident_text": "corrupcion indice db caida nodo primario urgente",
+          "expected_json": "{\"sev\":\"P1\",\"svc\":\"db\",\"act\":\"rollback\"}",
+          "decoded_output": "{\"sev\":\"P1\",\"svc\":\"db\",\"act\":\"rollback\"}",
+          "schema_valid": true,
+          "exact_match": true
+        },
+        {
+          "incident_text": "bloqueo conexiones replica lectura lenta db disco",
+          "expected_json": "{\"sev\":\"P2\",\"svc\":\"db\",\"act\":\"escalar\"}",
+          "decoded_output": "{\"sev\":\"P2\",\"svc\":\"db\",\"act\":\"escalar\"}",
+          "schema_valid": true,
+          "exact_match": true
+        }
       ]
     },
     "05_merge_weights_and_serve_endpoint": {
       "lora_params_before_merge": 77824,
       "lora_params_after_merge": 0,
       "merged_total_params": 3672320,
+      "base_total_params": 3672320,
       "max_logits_abs_diff": 9.953975677490234e-06,
-      "unmerged_forward_ms": 11.657465482130647,
-      "merged_forward_ms": 9.834886914385216,
-      "merge_inference_speedup": 1.185317694408829,
+      "hlo_dot_ops": {
+        "base": 37,
+        "merged": 37,
+        "two_branch_lora": 93
+      },
+      "timing": "median of 35 calls after one warmup call",
+      "num_iters": 35,
+      "unmerged_first_call_ms": 274.83049989677966,
+      "merged_first_call_ms": 242.4343330785632,
+      "unmerged_forward_ms": 12.42945808917284,
+      "merged_forward_ms": 10.583375114947557,
+      "merge_inference_speedup": 1.1744323482986014,
       "merged_exact_match_rate_pct": 100.0,
+      "http_server": "local, 127.0.0.1, in-process (nothing deployed)",
       "http_status": 200,
       "http_response": {
         "status": "ok",
@@ -112,7 +226,7 @@
         },
         "raw_completion": "{\"sev\":\"P1\",\"svc\":\"pagos\",\"act\":\"rollback\"}",
         "schema_valid": true,
-        "inference_ms": 35.6273,
+        "inference_ms": 40.3301,
         "serving_mode": "merged_single_branch_xla"
       }
     }

@@ -2,16 +2,21 @@
 
 Demonstrates how a low-rank update matrix `Delta_W = A @ B` (`rank=4`) wrapped via
 `nnx.LoRA` and filtered via `nnx.LoRAParam` vs `nnx.All(nnx.Param, nnx.Not(nnx.LoRAParam))`
-allows adapting a Gemma model to a Spanish structured JSON task while:
-  1. Reducing trainable parameters by ~97.90% (training only ~2.10% of weights).
+allows adapting a small Gemma-style model (random base weights, not a Gemma checkpoint) to
+a Spanish structured JSON task while:
+  1. Training only ~2.08% of the parameters (7 projections per block, rank 4). The share
+     depends on the rank and on which layers are wrapped; embeddings and lm_head stay frozen.
   2. Preserving 100% of base model weights bit-for-bit (`max_base_weight_diff == 0.0`).
-  3. Driving completion-masked cross-entropy loss down with `optax.adamw` in seconds.
+  3. Driving completion-masked cross-entropy loss down with `optax.adamw` in 45 steps on the
+     12 training examples. The first step traces and compiles and is timed apart.
 """
 
 from __future__ import annotations
 
 import importlib.util
+import statistics
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -146,9 +151,12 @@ def train_domain_lora_adapter(
     loss_before = float(eval_loss(model, input_ids, target_ids, comp_mask))
     loss_history: list[float] = [loss_before]
 
+    step_ms: list[float] = []
     for _ in range(steps):
+        t0 = time.perf_counter()
         step_loss = lora_train_step(model, optimizer, input_ids, target_ids, comp_mask)
-        loss_history.append(float(step_loss))
+        loss_history.append(float(step_loss))  # float() waits for the step to finish
+        step_ms.append((time.perf_counter() - t0) * 1000.0)
 
     loss_after = float(eval_loss(model, input_ids, target_ids, comp_mask))
 
@@ -166,7 +174,10 @@ def train_domain_lora_adapter(
     metrics = {
         **counts,
         "lora_rank": lora_rank,
+        "wrapped_projections": 7 * len(model.blocks),
         "steps": steps,
+        "first_step_ms": step_ms[0],
+        "median_step_ms": statistics.median(step_ms[1:]) if len(step_ms) > 1 else step_ms[0],
         "loss_before": loss_before,
         "loss_step_20": loss_history[min(20, len(loss_history) - 1)],
         "loss_after": loss_after,
@@ -180,30 +191,36 @@ def train_domain_lora_adapter(
 
 def main() -> None:
     _, res = train_domain_lora_adapter(lora_rank=4, steps=45)
-    print("=" * 74)
+    print("=" * 76)
     print(" Experiment 03: Surgical LoRA Injection & Adaptation in Flax NNX")
-    print("=" * 74)
-    print(f" Frozen Base Parameters    : {res['base_params']:,}")
-    print(f" Trainable LoRA Parameters : {res['lora_params']:,} (rank={res['lora_rank']})")
-    print(f" Total Parameters          : {res['total_params']:,}")
+    print("=" * 76)
     print(
-        f" Trainable Parameter Share : {res['trainable_ratio_pct']:.2f}% "
-        f"({res['reduction_pct']:.2f}% parameter reduction)"
+        f" Wrapped with nnx.LoRA      : {res['wrapped_projections']} projections "
+        "(4 attention + 3 GeGLU per block)"
     )
-    print("-" * 74)
+    print(f" Frozen Base Parameters     : {res['base_params']:,} (random toy base)")
+    print(f" Trainable LoRA Parameters  : {res['lora_params']:,} (rank={res['lora_rank']})")
+    print(f" Total Parameters           : {res['total_params']:,}")
     print(
-        f" Completion-Masked Loss    : {res['loss_before']:.4f} (step 0) -> "
+        f" Trainable Parameter Share  : {res['trainable_ratio_pct']:.2f}% "
+        f"({res['reduction_pct']:.2f}% frozen)"
+    )
+    print("-" * 76)
+    print(f" First Step (trace+compile) : {res['first_step_ms']:.1f} ms (timed apart)")
+    print(f" Median Step After Warmup   : {res['median_step_ms']:.2f} ms")
+    print(
+        f" JSON Loss (12 train ex.)   : {res['loss_before']:.4f} (step 0) -> "
         f"{res['loss_step_20']:.4f} (step 20) -> {res['loss_after']:.4f} (step {res['steps']})"
     )
     print(
-        f" Base Weight Max |Diff|    : {res['max_base_weight_diff']:.8f} "
+        f" Base Weight Max |Diff|     : {res['max_base_weight_diff']:.8f} "
         f"(frozen={res['base_weights_frozen_bitwise']})"
     )
     print(
-        f" LoRA Adapter Max |Diff|   : {res['max_lora_weight_diff']:.6f} "
+        f" LoRA Adapter Max |Diff|    : {res['max_lora_weight_diff']:.6f} "
         f"(updated={res['lora_weights_updated']})"
     )
-    print("=" * 74)
+    print("=" * 76)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,27 @@
+==============================================================================
+ Experiment 04: Deterministic Structured Output Evaluation (greedy, no grammar mask)
+==============================================================================
+ 12 cases = the 12 TRAINING examples (6 reports + 6 reorderings)
+ Before = same toy model, random weights, no examples in the prompt (weak baseline)
+------------------------------------------------------------------------------
+ Metric (12 train cases)     | Before LoRA (Base) | After LoRA (rank=4)
+------------------------------------------------------------------------------
+ Valid JSON Syntax Rate      |              0.0%  |             100.0%
+ Strict Schema & Enum Rate   |              0.0%  |             100.0%
+ Field Extraction Accuracy   |              0.0%  |             100.0%
+ Full-Record Exact Match     |              0.0%  |             100.0%
+------------------------------------------------------------------------------
+ Train #1 Input   : alerta critica pasarela pagos timeout cobros tarjeta produccion urgente
+   Before LoRA    : <unk:510><unk:510><unk:510><unk:510><unk:510><unk:51...
+   After LoRA     : {"sev":"P1","svc":"pagos","act":"rollback"} (exact=True)
+------------------------------------------------------------------------------
+ Held-out (not in training, 6 reports, same vocabulary, new order)
+ Held-out Schema Valid       |              0/6  |               6/6
+ Held-out Exact Match        |              0/6  |               3/6
+   MISS timeout cobros tarjeta pasarela pa | got P1 auth rollback | want P1 pagos rollback
+   MISS latencia moderada cache pagos erro | got P1 auth cache | want P2 pagos cache
+   OK   tokens jwt rechazados fallo critic | got P1 auth rollback | want P1 auth rollback
+   MISS sesion expiracion aviso login rein | got P1 auth escalar | want P3 auth escalar
+   OK   corrupcion indice db caida nodo pr | got P1 db rollback | want P1 db rollback
+   OK   bloqueo conexiones replica lectura | got P2 db escalar | want P2 db escalar
+==============================================================================

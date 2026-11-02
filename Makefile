@@ -2,16 +2,22 @@ PYTHON ?= $(shell if [ -x ../../.venv-shared/bin/python ]; then echo ../../.venv
 PYTEST ?= $(shell if [ -x ../../.venv-shared/bin/pytest ]; then echo ../../.venv-shared/bin/pytest; else command -v pytest; fi)
 RUFF ?= $(shell if [ -x ../../.venv-shared/bin/ruff ]; then echo ../../.venv-shared/bin/ruff; else command -v ruff; fi)
 
-.PHONY: all experiments verify test lint security gcp-tpu gcp-gpu gcp-cloudrun clean
+SHELL := /bin/bash
+.SHELLFLAGS := -o pipefail -c
+OUT := benchmarks/experiment_outputs
+
+.PHONY: all experiments verify test lint security gcp-tpu gcp-gpu clean
 
 all: lint test verify
 
+# Each run is also saved to benchmarks/experiment_outputs/ so every number is traceable.
 experiments:
-	$(PYTHON) experiments/01_when_prompting_hits_a_wall.py
-	$(PYTHON) experiments/02_preparing_domain_dataset_masking.py
-	$(PYTHON) experiments/03_lora_adapters_in_flax_nnx.py
-	$(PYTHON) experiments/04_structured_output_validation_eval.py
-	$(PYTHON) experiments/05_merge_weights_and_serve_endpoint.py
+	mkdir -p $(OUT)
+	$(PYTHON) experiments/01_when_prompting_hits_a_wall.py | tee $(OUT)/01_when_prompting_hits_a_wall.txt
+	$(PYTHON) experiments/02_preparing_domain_dataset_masking.py | tee $(OUT)/02_preparing_domain_dataset_masking.txt
+	$(PYTHON) experiments/03_lora_adapters_in_flax_nnx.py | tee $(OUT)/03_lora_adapters_in_flax_nnx.txt
+	$(PYTHON) experiments/04_structured_output_validation_eval.py | tee $(OUT)/04_structured_output_validation_eval.txt
+	$(PYTHON) experiments/05_merge_weights_and_serve_endpoint.py | tee $(OUT)/05_merge_weights_and_serve_endpoint.txt
 
 verify:
 	$(PYTHON) verify_adaptation.py
@@ -30,9 +36,6 @@ gcp-tpu:
 
 gcp-gpu:
 	bash gcp/run_on_demand_adaptation.sh gpu
-
-gcp-cloudrun:
-	bash gcp/run_on_demand_adaptation.sh cloudrun
 
 clean:
 	rm -rf __pycache__ .pytest_cache .ruff_cache experiments/__pycache__ tests/__pycache__

@@ -1,0 +1,22 @@
+============================================================================
+ Experiment 01: When Few-Shot Prompting Hits a Wall (Gemma-style, Flax NNX)
+============================================================================
+ Model                       : 4 blocks, d_model 256, 3,672,320 params, random weights
+ Not a Gemma checkpoint      : same mechanics, quality numbers do not carry over
+ Backend Device              : cpu
+ Few-Shot Context Length     : 208 tokens (6 examples x 32 + report)
+ Compact Prompt Length       : 16 tokens (report only, no examples)
+ Input Token Multiplier      : 13.0x more tokens per request
+----------------------------------------------------------------------------
+ Same model and weights, both @nnx.jit, batch=8, LoRA not involved
+ First Call 208t (compile)   : 238.8 ms (timed apart)
+ First Call 16t (compile)    : 198.2 ms (timed apart)
+ Median ms per call after warmup (n=25):
+ Few-Shot Prefill (208t)     : 35.1397 ms
+ Compact Prefill (16t)       : 6.7756 ms
+ Prefill Speedup (time)      : 5.19x (tokens: 13.0x)
+ KV-Cache, batch (computed)  : 6656.0 KB -> 512.0 KB (92.31% less)
+----------------------------------------------------------------------------
+ Untrained Model, 16t Prompt : <unk:295><unk:596><unk:550><unk:343><unk:550...
+ Valid JSON Schema           : False
+============================================================================

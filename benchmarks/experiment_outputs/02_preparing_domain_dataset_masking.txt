@@ -1,0 +1,14 @@
+============================================================================
+ Experiment 02: Domain Dataset Engineering & Completion-Only Loss Masking
+============================================================================
+ Static Padded Batch Shape    : (12, 32) int32 (16 prompt + 14 JSON + 2 pad)
+ @nnx.jit Traces (2x12 steps) : 2 (one per model, no retrace)
+ Prompt Share Without Mask    : 40.43% (114 of 282 supervised tokens)
+----------------------------------------------------------------------------
+ Full fine-tuning, same seed, 12 steps each; both scored on the JSON tokens
+ of the same 12 training examples (one seed, training set)
+ Initial JSON Loss            : 7.1052 (JSON token acc 0.0%)
+ No Prompt Mask (12 steps)    : 0.0677 (JSON token acc 100.0%)
+ Completion-Masked (12 steps) : 0.0456 (JSON token acc 100.0%)
+ JSON Loss, No Mask / Masked  : 1.48x lower with the mask
+============================================================================

@@ -62,7 +62,7 @@
     <div class="diagram-container">
       <svg viewBox="0 0 1040 540" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="lora-merge-arch-title lora-merge-arch-desc">
         <title id="lora-merge-arch-title">Entrenar solo el 2.08% con nnx.LoRA y fusionar W_merged = W_base + A @ B al servir</title>
-        <desc id="lora-merge-arch-desc">Arquitectura de dos fases en Flax NNX: durante el entrenamiento los pesos base permanecen congelados y solo se actualiza la rama de bajo rango A por B; antes de desplegar en Cloud Run se suma A por B sobre W_base para servir con cero latencia extra.</desc>
+        <desc id="lora-merge-arch-desc">Arquitectura de dos fases en Flax NNX: durante el entrenamiento los pesos base permanecen congelados y solo se actualiza la rama de bajo rango A por B; al final se suma A por B sobre W_base y el modelo fusionado se sirve desde un servidor HTTP local con los mismos dot compilados que el modelo base.</desc>
         <defs>
           <pattern id="dots" width="22" height="22" patternUnits="userSpaceOnUse">
             <circle cx="1" cy="1" r="0.9" fill="rgba(15,37,71,0.10)"/>
@@ -81,7 +81,7 @@
 
         <rect x="616" y="64" width="384" height="384" rx="8" fill="rgba(197,146,22,0.04)" stroke="rgba(197,146,22,0.40)" stroke-width="1" stroke-dasharray="4,4"/>
         <rect x="632" y="68" width="348" height="16" rx="2" fill="#F7F6F2"/>
-        <text x="806" y="79" fill="#9A6F0B" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.14em" font-weight="600">2 · FUSIÓN MATEMÁTICA Y SERVING (CLOUD RUN)</text>
+        <text x="806" y="79" fill="#9A6F0B" font-size="8" font-family="'Geist Mono', monospace" text-anchor="middle" letter-spacing="0.14em" font-weight="600">2 · FUSIÓN MATEMÁTICA Y SERVING (HTTP LOCAL)</text>
 
         <!-- Orthogonal Arrows -->
         <!-- Input x (Node 1) -> Frozen Base W_base (Node 2) -->
@@ -92,7 +92,7 @@
         <path d="M 528,152 H 580 Q 588,152 588,160 V 168 Q 588,176 596,176 H 660" fill="none" stroke="#3B5B8C" stroke-width="1.2" marker-end="url(#arrow)"/>
         <!-- Trainable LoRA A@B (Node 3) -> Merged Kernel (Node 4) -->
         <path d="M 528,336 H 588 Q 596,336 596,328 V 200 Q 596,192 604,192 H 660" fill="none" stroke="#C59216" stroke-width="1.6" marker-end="url(#arrow-accent)"/>
-        <!-- Merged Kernel (Node 4) -> Cloud Run Endpoint (Node 5) -->
+        <!-- Merged Kernel (Node 4) -> Local HTTP Endpoint (Node 5) -->
         <line x1="808" y1="224" x2="808" y2="292" stroke="#C59216" stroke-width="1.6" marker-end="url(#arrow-accent)"/>
 
         <!-- Arrow Labels -->
@@ -133,11 +133,11 @@
         <text x="676" y="176" fill="#0F2547" font-size="14" font-weight="600" font-family="'Geist', sans-serif">W_merged = W_base + (A @ B)</text>
         <text x="676" y="198" fill="#9A6F0B" font-size="9" font-family="'Geist Mono', monospace" font-weight="500">1 sola matriz nnx.Linear · Δ &lt; 1e-5</text>
 
-        <!-- Node 5: Cloud Run HTTP Endpoint -->
+        <!-- Node 5: Local HTTP Endpoint (127.0.0.1) -->
         <rect x="660" y="292" width="296" height="88" rx="6" fill="#FFFFFF" stroke="#0F2547" stroke-width="1"/>
-        <text x="676" y="316" fill="#3B5B8C" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.12em">SERVING SERVERLESS (--MIN-INSTANCES=0)</text>
+        <text x="676" y="316" fill="#3B5B8C" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.12em">SERVIDOR HTTP LOCAL (127.0.0.1)</text>
         <text x="676" y="338" fill="#0F2547" font-size="13" font-weight="600" font-family="'Geist', sans-serif">Endpoint POST /v1/triage</text>
-        <text x="676" y="358" fill="#3B5B8C" font-size="9" font-family="'Geist Mono', monospace">HTTP 200 · 0 latencia extra de adaptador</text>
+        <text x="676" y="358" fill="#3B5B8C" font-size="9" font-family="'Geist Mono', monospace">HTTP 200 · mismos 37 dot que el base</text>
 
         <!-- Bottom Legend Strip -->
         <line x1="40" y1="476" x2="1000" y2="476" stroke="rgba(15,37,71,0.14)" stroke-width="0.8"/>

@@ -1,0 +1,15 @@
+============================================================================
+ Experiment 03: Surgical LoRA Injection & Adaptation in Flax NNX
+============================================================================
+ Wrapped with nnx.LoRA      : 28 projections (4 attention + 3 GeGLU per block)
+ Frozen Base Parameters     : 3,672,320 (random toy base)
+ Trainable LoRA Parameters  : 77,824 (rank=4)
+ Total Parameters           : 3,750,144
+ Trainable Parameter Share  : 2.08% (97.92% frozen)
+----------------------------------------------------------------------------
+ First Step (trace+compile) : 770.7 ms (timed apart)
+ Median Step After Warmup   : 28.00 ms
+ JSON Loss (12 train ex.)   : 7.1653 (step 0) -> 0.5186 (step 20) -> 0.1709 (step 45)
+ Base Weight Max |Diff|     : 0.00000000 (frozen=True)
+ LoRA Adapter Max |Diff|    : 0.358285 (updated=True)
+============================================================================

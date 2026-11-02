@@ -38,18 +38,18 @@
 
     <div class="diagram-container" role="region" aria-label="Comparación entre few-shot prompting y adaptación con LoRA; desplaza horizontalmente en pantallas estrechas" tabindex="0">
       <svg viewBox="0 0 1200 660" xmlns="http://www.w3.org/2000/svg" data-diagram="architecture-delta" role="img" aria-labelledby="fewshot-vs-lora-title fewshot-vs-lora-desc">
-        <title id="fewshot-vs-lora-title">Few-shot prompting repetitivo vs modelo Gemma adaptado con LoRA</title>
-        <desc id="fewshot-vs-lora-desc">Architecture delta que compara el costo por request de un prompt few-shot de 208 tokens frente a un prompt compacto de 16 tokens sobre un modelo Gemma adaptado con LoRA en Flax NNX.</desc>
+        <title id="fewshot-vs-lora-title">Few-shot prompting repetitivo vs modelo estilo Gemma adaptado con LoRA</title>
+        <desc id="fewshot-vs-lora-desc">Architecture delta que compara el costo por request de un prompt few-shot de 208 tokens frente a un prompt compacto de 16 tokens sobre un modelo pequeño estilo Gemma (pesos base aleatorios) adaptado con LoRA en Flax NNX. Mismo modelo y pesos en el prefill; el KV cache sale de una fórmula.</desc>
         <defs>
           <marker id="fewshot-vs-lora-arrow" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto" markerUnits="userSpaceOnUse"><polygon points="0 0, 8 3, 0 6" fill="#3B5B8C"/></marker>
         </defs>
         <rect width="1200" height="660" fill="#F7F6F2"/>
         <text x="24" y="28" fill="#0F2547" font-size="14" font-family="'Geist', sans-serif" font-weight="600">Before · Few-Shot Prompting (208t)</text>
-        <text x="24" y="50" fill="#3B5B8C" font-size="10" font-family="'Geist', sans-serif">13.0x más tokens de entrada y 0% exact match</text>
+        <text x="24" y="50" fill="#3B5B8C" font-size="10" font-family="'Geist', sans-serif">13x más tokens de entrada · mismo modelo y pesos</text>
         <text x="424" y="28" fill="#0F2547" font-size="14" font-family="'Geist', sans-serif" font-weight="600">Changes Ledger</text>
         <text x="424" y="50" fill="#3B5B8C" font-size="10" font-family="'Geist', sans-serif">Mover el conocimiento del prompt a pesos LoRA</text>
-        <text x="840" y="28" fill="#0F2547" font-size="14" font-family="'Geist', sans-serif" font-weight="600">After · Gemma + LoRA Merged (16t)</text>
-        <text x="840" y="50" fill="#3B5B8C" font-size="10" font-family="'Geist', sans-serif">-92.3% KV cache · 3.7x prefill · 100% JSON válido</text>
+        <text x="840" y="28" fill="#0F2547" font-size="14" font-family="'Geist', sans-serif" font-weight="600">After · Gemma-style + LoRA (16t)</text>
+        <text x="840" y="50" fill="#3B5B8C" font-size="10" font-family="'Geist', sans-serif">-92.3% KV cache · prefill ~5x · 12/12 JSON (train)</text>
         <path d="M 392 8 V 568 M 808 8 V 568" stroke="rgba(15,37,71,0.14)" stroke-width="1"/>
 
         <g data-snapshot="before" transform="translate(24 88)" data-grid="336 480 4">
@@ -94,7 +94,7 @@
             <path d="M 85 316 V 356" fill="none" stroke="#3B5B8C" stroke-width="3"/>
             <text x="96" y="320" fill="#3B5B8C" font-size="7.5" font-family="'Geist Mono', monospace">~ kvcache · CHANGED</text>
             <text x="96" y="340" fill="#0F2547" font-size="12" font-family="'Geist', sans-serif" font-weight="600">Prefill &amp; KV Cache</text>
-            <text x="96" y="356" fill="#3B5B8C" font-size="9" font-family="'Geist Mono', monospace">6656 KB · ~41.4 ms</text>
+            <text x="96" y="356" fill="#3B5B8C" font-size="9" font-family="'Geist Mono', monospace">6656 KB (fórmula)</text>
           </g>
 
           <g data-kind="component" data-object-id="response" data-status="unchanged" data-signature="json:schema:v1">
@@ -131,7 +131,7 @@
         <path d="M 456 442 H 776" stroke="rgba(15,37,71,0.14)" stroke-width="0.8"/>
 
         <text x="424" y="466" fill="#3B5B8C" font-size="9" font-family="'Geist Mono', monospace">07</text>
-        <text x="456" y="464" data-change="ADDED" data-target="r4" fill="#3B5B8C" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.06em">ADDED · r4<tspan x="456" y="486" fill="#0F2547" font-size="11.5" font-family="'Geist', sans-serif" letter-spacing="0">Prefill rápido 3.7x con 100% exactitud JSON</tspan></text>
+        <text x="456" y="464" data-change="ADDED" data-target="r4" fill="#3B5B8C" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.06em">ADDED · r4<tspan x="456" y="486" fill="#0F2547" font-size="11.5" font-family="'Geist', sans-serif" letter-spacing="0">Prefill ~5x más rápido · 12/12 JSON (train)</tspan></text>
 
         <text x="424" y="536" fill="#3B5B8C" font-size="8" font-family="'Geist Mono', monospace" letter-spacing="0.14em">PRESERVED</text>
         <text x="424" y="554" fill="#3B5B8C" font-size="11" font-family="'Geist', sans-serif">Reporte en Español · Salida JSON Triage · r1 · r5</text>
@@ -147,9 +147,9 @@
           <rect x="176" y="168" width="96" height="16" rx="2" fill="#F7F6F2"/>
           <text x="180" y="180" fill="#3B5B8C" font-size="8" font-family="'Geist Mono', monospace">r2 · 16 TOKENS</text>
           <rect x="176" y="272" width="108" height="16" rx="2" fill="#F7F6F2"/>
-          <text x="180" y="284" fill="#3B5B8C" font-size="8" font-family="'Geist Mono', monospace">r4 · 3.7X FAST</text>
+          <text x="180" y="284" fill="#3B5B8C" font-size="8" font-family="'Geist Mono', monospace">r4 · ~5X PREFILL</text>
           <rect x="176" y="384" width="96" height="16" rx="2" fill="#F7F6F2"/>
-          <text x="180" y="396" fill="#3B5B8C" font-size="8" font-family="'Geist Mono', monospace">r5 · 100% JSON</text>
+          <text x="180" y="396" fill="#3B5B8C" font-size="8" font-family="'Geist Mono', monospace">r5 · 12/12 TRAIN</text>
 
           <g data-kind="component" data-object-id="request" data-status="unchanged" data-signature="app:request:v1">
             <rect data-role="bounds" x="84" y="0" width="168" height="64" rx="6" fill="#EFECE6" stroke="#3B5B8C" stroke-width="1.2"/>
@@ -170,7 +170,7 @@
             <rect data-role="bounds" x="84" y="192" width="168" height="64" rx="6" fill="rgba(197,146,22,0.12)" stroke="#C59216" stroke-width="1.4"/>
             <rect x="88" y="196" width="160" height="56" rx="4" fill="none" stroke="#C59216" stroke-width="0.8"/>
             <text x="96" y="208" fill="#9A6F0B" font-size="7.5" font-family="'Geist Mono', monospace">+ lora · ADDED</text>
-            <text x="96" y="228" fill="#0F2547" font-size="12" font-family="'Geist', sans-serif" font-weight="600">Gemma + LoRA (r=4)</text>
+            <text x="96" y="228" fill="#0F2547" font-size="12" font-family="'Geist', sans-serif" font-weight="600">Toy Gemma + LoRA (r=4)</text>
             <text x="96" y="244" fill="#9A6F0B" font-size="9" font-family="'Geist Mono', monospace">W_base + A@B · 2.08%</text>
           </g>
 
@@ -179,7 +179,7 @@
             <path d="M 85 316 V 356" fill="none" stroke="#3B5B8C" stroke-width="3"/>
             <text x="96" y="320" fill="#3B5B8C" font-size="7.5" font-family="'Geist Mono', monospace">~ kvcache · CHANGED</text>
             <text x="96" y="340" fill="#0F2547" font-size="12" font-family="'Geist', sans-serif" font-weight="600">Prefill &amp; KV Cache</text>
-            <text x="96" y="356" fill="#3B5B8C" font-size="9" font-family="'Geist Mono', monospace">512 KB · ~11.2 ms</text>
+            <text x="96" y="356" fill="#3B5B8C" font-size="9" font-family="'Geist Mono', monospace">512 KB (fórmula)</text>
           </g>
 
           <g data-kind="component" data-object-id="response" data-status="unchanged" data-signature="json:schema:v1">

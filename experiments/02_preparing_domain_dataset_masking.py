@@ -1,9 +1,13 @@
 """Experiment 02: Domain Dataset Engineering & Completion-Only Loss Masking.
 
 Demonstrates how to pack variable-length `(instruction, JSON completion)` pairs into
-static-shape batches (`batch_size=12, seq_len=32`) for zero XLA recompilations, and
-proves why `loss_mask` must be `0.0` on instruction/padding tokens and `1.0` strictly
-on the target JSON completion tokens (`Prompt vs Completion Loss Masking`).
+static-shape batches (`batch_size=12, seq_len=32`) so `@nnx.jit` traces once per model and
+never retraces, and compares a `loss_mask` that is `0.0` on instruction/padding tokens and
+`1.0` strictly on the target JSON completion tokens against no prompt mask.
+
+Both runs fine-tune the full toy model (no LoRA here), from the same seed, for 12 steps on
+the same 12 training examples, and are scored with the same yardstick: cross-entropy on the
+JSON tokens only. One seed, training set, so it is a modest effect, not a benchmark.
 """
 
 from __future__ import annotations
@@ -172,7 +176,10 @@ def compare_prompt_vs_completion_masking(steps: int = 12) -> dict[str, Any]:
 
     return {
         "batch_shape": tuple(int(d) for d in batch["full_sequences"].shape),
+        "steps_per_model": steps,
         "jit_trace_count": int(trace_counter["count"]),
+        "supervised_tokens_unmasked": int(total_active_unmasked),
+        "supervised_tokens_completion": int(total_active_completion),
         "wasted_prompt_token_share_pct": float(wasted_prompt_token_share_pct),
         "initial_completion_loss": float(init_comp_loss),
         "initial_completion_acc_pct": float(init_comp_acc * 100.0),
@@ -186,30 +193,38 @@ def compare_prompt_vs_completion_masking(steps: int = 12) -> dict[str, Any]:
 
 def main() -> None:
     res = compare_prompt_vs_completion_masking(steps=12)
-    print("=" * 74)
+    n_prompt = res["supervised_tokens_unmasked"] - res["supervised_tokens_completion"]
+    print("=" * 76)
     print(" Experiment 02: Domain Dataset Engineering & Completion-Only Loss Masking")
-    print("=" * 74)
-    print(f" Static Padded Batch Shape      : {res['batch_shape']} int32")
-    print(f" @nnx.jit Trace Count (24 steps): {res['jit_trace_count']} (zero dynamic recompiles)")
+    print("=" * 76)
+    shape = res["batch_shape"]
+    print(f" Static Padded Batch Shape    : {shape} int32 (16 prompt + 14 JSON + 2 pad)")
     print(
-        f" Unmasked Prompt Gradient Waste : {res['wasted_prompt_token_share_pct']:.2f}% "
-        f"of supervised tokens are prompt tokens"
-    )
-    print("-" * 74)
-    print(
-        f" Initial JSON Completion Loss   : {res['initial_completion_loss']:.4f} "
-        f"(token acc: {res['initial_completion_acc_pct']:.1f}%)"
+        f" @nnx.jit Traces (2x{res['steps_per_model']} steps) : {res['jit_trace_count']} "
+        "(one per model, no retrace)"
     )
     print(
-        f" Unmasked Training (12 steps)   : {res['unmasked_completion_loss']:.4f} "
-        f"(JSON token acc: {res['unmasked_completion_acc_pct']:.1f}%)"
+        f" Prompt Share Without Mask    : {res['wasted_prompt_token_share_pct']:.2f}% "
+        f"({n_prompt} of {res['supervised_tokens_unmasked']} supervised tokens)"
+    )
+    print("-" * 76)
+    print(" Full fine-tuning, same seed, 12 steps each; both scored on the JSON tokens")
+    print(" of the same 12 training examples (one seed, training set)")
+    print(
+        f" Initial JSON Loss            : {res['initial_completion_loss']:.4f} "
+        f"(JSON token acc {res['initial_completion_acc_pct']:.1f}%)"
     )
     print(
-        f" Completion-Masked (12 steps)   : {res['masked_completion_loss']:.4f} "
-        f"(JSON token acc: {res['masked_completion_acc_pct']:.1f}%)"
+        f" No Prompt Mask (12 steps)    : {res['unmasked_completion_loss']:.4f} "
+        f"(JSON token acc {res['unmasked_completion_acc_pct']:.1f}%)"
     )
-    print(f" JSON Loss Reduction Advantage  : {res['loss_improvement_ratio']:.2f}x lower JSON loss")
-    print("=" * 74)
+    print(
+        f" Completion-Masked (12 steps) : {res['masked_completion_loss']:.4f} "
+        f"(JSON token acc {res['masked_completion_acc_pct']:.1f}%)"
+    )
+    ratio = res["loss_improvement_ratio"]
+    print(f" JSON Loss, No Mask / Masked  : {ratio:.2f}x lower with the mask")
+    print("=" * 76)
 
 
 if __name__ == "__main__":

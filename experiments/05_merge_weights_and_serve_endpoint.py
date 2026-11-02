@@ -3,16 +3,24 @@
 Proves that after training a `nnx.LoRA` adapter we can fold the low-rank matrices directly
 into the frozen base weights (`W_merged = W_base + lora_a @ lora_b`) and unwrap `nnx.LoRA`
 back into standard `nnx.Linear` layers:
-  1. Exact numerical equivalence (`max_logits_abs_diff < 1e-5`, 100% identical greedy JSON).
-  2. Zero remaining `nnx.LoRAParam` variables (`lora_params_after_merge == 0`).
-  3. Faster `@nnx.jit` inference latency than running dual-branch `nnx.LoRA` modules.
-  4. Live HTTP `POST /v1/triage` microservice verified (Cloud Run `--min-instances=0` ready).
+  1. Numerical equivalence up to float32 rounding (`max_logits_abs_diff < 1e-5`, the sum is
+     reassociated) and the same greedy JSON on the 12 training cases.
+  2. Zero remaining `nnx.LoRAParam` variables (`lora_params_after_merge == 0`) and the same
+     parameter count as the base model.
+  3. The same compiled program shape as the base model: the optimized HLO of the merged model
+     has as many `dot` ops as the base model (checked structurally, not with a stopwatch),
+     while the two-branch LoRA model has more. The merged vs two-branch forward is timed as
+     the median per call after a warmup call (compilation timed apart).
+  4. A local HTTP `POST /v1/triage` server (127.0.0.1, inside this process) that answers a
+     real request. Nothing is deployed anywhere.
 """
 
 from __future__ import annotations
 
 import importlib.util
 import json
+import re
+import statistics
 import sys
 import threading
 import time
@@ -64,11 +72,29 @@ def merge_lora_weights_into_base(lora_model: Any) -> Any:
     return merged_model
 
 
+def _median_ms(fn: Any, n_iters: int) -> float:
+    """Median wall time of `fn()` in ms (robust to noisy neighbours on a shared machine)."""
+    times = []
+    for _ in range(n_iters):
+        t0 = time.perf_counter()
+        fn()
+        times.append((time.perf_counter() - t0) * 1000.0)
+    return statistics.median(times)
+
+
+def count_hlo_dots(model: Any, tokens: jax.Array) -> int:
+    """Number of `dot` ops in the optimized HLO that XLA compiles for `model(tokens)`."""
+    graphdef, state = nnx.split(model)
+    fwd = jax.jit(lambda st, t: nnx.merge(graphdef, st)(t))
+    hlo = fwd.lower(state, tokens).compile().as_text()
+    return len(re.findall(r" dot\(", hlo))
+
+
 def serve_and_verify_triage_endpoint(
     merged_model: Any,
     incident_text: str = "alerta critica pasarela pagos timeout cobros tarjeta produccion urgente",
 ) -> dict[str, Any]:
-    """Spins up an ephemeral HTTP server (`POST /v1/triage`) and verifies a live request."""
+    """Starts a local HTTP server (127.0.0.1, `POST /v1/triage`) and sends it one request."""
     exp01 = _load_module("exp01_prompting", "01_when_prompting_hits_a_wall.py")
     exp04 = _load_module("exp04_eval", "04_structured_output_validation_eval.py")
 
@@ -157,11 +183,14 @@ def serve_and_verify_triage_endpoint(
 
 def verify_weight_merge_and_serving(num_iters: int = 35) -> dict[str, Any]:
     """Benchmarks unmerged LoRA vs merged `W_base + A @ B` model and runs the HTTP check."""
+    exp01 = _load_module("exp01_prompting", "01_when_prompting_hits_a_wall.py")
     exp02 = _load_module("exp02_masking", "02_preparing_domain_dataset_masking.py")
     exp03 = _load_module("exp03_lora", "03_lora_adapters_in_flax_nnx.py")
     exp04 = _load_module("exp04_eval", "04_structured_output_validation_eval.py")
 
     lora_model, _ = exp03.train_domain_lora_adapter(lora_rank=4, steps=45)
+    # Same seed as the base inside exp03, before LoRA was injected: the original model.
+    base_model = exp01.GemmaForCausalLM(exp01.GemmaAppConfig(), rngs=nnx.Rngs(7))
     merged_model = merge_lora_weights_into_base(lora_model)
 
     counts_before = exp03.count_lora_vs_base_parameters(lora_model)
@@ -174,21 +203,27 @@ def verify_weight_merge_and_serving(num_iters: int = 35) -> dict[str, Any]:
     def forward_jit(mdl: Any, tokens: jax.Array) -> jax.Array:
         return mdl(tokens)
 
+    t0 = time.perf_counter()
     logits_unmerged = forward_jit(lora_model, input_ids).block_until_ready()
+    unmerged_first_ms = (time.perf_counter() - t0) * 1000.0
+    t0 = time.perf_counter()
     logits_merged = forward_jit(merged_model, input_ids).block_until_ready()
+    merged_first_ms = (time.perf_counter() - t0) * 1000.0
     max_logits_diff = float(jnp.max(jnp.abs(logits_unmerged - logits_merged)))
 
-    t0 = time.perf_counter()
-    for _ in range(num_iters):
-        out_u = forward_jit(lora_model, input_ids)
-        out_u.block_until_ready()
-    unmerged_ms = ((time.perf_counter() - t0) / num_iters) * 1000.0
+    unmerged_ms = _median_ms(
+        lambda: forward_jit(lora_model, input_ids).block_until_ready(), num_iters
+    )
+    merged_ms = _median_ms(
+        lambda: forward_jit(merged_model, input_ids).block_until_ready(), num_iters
+    )
 
-    t1 = time.perf_counter()
-    for _ in range(num_iters):
-        out_m = forward_jit(merged_model, input_ids)
-        out_m.block_until_ready()
-    merged_ms = ((time.perf_counter() - t1) / num_iters) * 1000.0
+    hlo_dots = {
+        "base": count_hlo_dots(base_model, input_ids),
+        "merged": count_hlo_dots(merged_model, input_ids),
+        "two_branch_lora": count_hlo_dots(lora_model, input_ids),
+    }
+    base_params = exp03.count_lora_vs_base_parameters(base_model)["total_params"]
 
     merged_eval = exp04.evaluate_model_on_suite(merged_model)
     http_check = serve_and_verify_triage_endpoint(merged_model)
@@ -197,11 +232,18 @@ def verify_weight_merge_and_serving(num_iters: int = 35) -> dict[str, Any]:
         "lora_params_before_merge": int(counts_before["lora_params"]),
         "lora_params_after_merge": int(counts_after["lora_params"]),
         "merged_total_params": int(counts_after["total_params"]),
+        "base_total_params": int(base_params),
         "max_logits_abs_diff": max_logits_diff,
+        "hlo_dot_ops": hlo_dots,
+        "timing": f"median of {num_iters} calls after one warmup call",
+        "num_iters": num_iters,
+        "unmerged_first_call_ms": float(unmerged_first_ms),
+        "merged_first_call_ms": float(merged_first_ms),
         "unmerged_forward_ms": float(unmerged_ms),
         "merged_forward_ms": float(merged_ms),
         "merge_inference_speedup": float(unmerged_ms / merged_ms),
         "merged_exact_match_rate_pct": float(merged_eval["exact_match_rate_pct"]),
+        "http_server": "local, 127.0.0.1, in-process (nothing deployed)",
         "http_status": http_check["http_status"],
         "http_response": http_check["response"],
     }
@@ -209,23 +251,37 @@ def verify_weight_merge_and_serving(num_iters: int = 35) -> dict[str, Any]:
 
 def main() -> None:
     res = verify_weight_merge_and_serving()
+    dots = res["hlo_dot_ops"]
     print("=" * 76)
-    print(" Experiment 05: LoRA Weight Merging (W_base + A @ B) & HTTP Endpoint")
+    print(" Experiment 05: LoRA Weight Merging (W_base + A @ B) & Local HTTP Endpoint")
     print("=" * 76)
     print(
-        f" LoRA Parameters in Graph     : {res['lora_params_before_merge']:,} (unmerged) -> "
+        f" LoRA Parameters in Graph     : {res['lora_params_before_merge']:,} (two-branch) -> "
         f"{res['lora_params_after_merge']:,} (merged)"
     )
-    print(f" Merged Model Total Params    : {res['merged_total_params']:,} (zero extra parameters)")
-    print(f" Max |Logits_LoRA - Merged|   : {res['max_logits_abs_diff']:.2e} (threshold < 1e-5)")
+    print(
+        f" Merged Model Total Params    : {res['merged_total_params']:,} "
+        f"(base model: {res['base_total_params']:,})"
+    )
+    print(f" Max |Logits_LoRA - Merged|   : {res['max_logits_abs_diff']:.2e} (judge: < 1e-5)")
+    print(
+        f" Compiled HLO dot ops         : base {dots['base']} | merged {dots['merged']} | "
+        f"two-branch {dots['two_branch_lora']}"
+    )
     print("-" * 76)
-    print(f" Unmerged Dual-Branch Latency : {res['unmerged_forward_ms']:.4f} ms")
-    print(f" Merged Single-Branch Latency : {res['merged_forward_ms']:.4f} ms")
-    print(f" Weight-Merge Serving Speedup : {res['merge_inference_speedup']:.2f}x faster")
-    print(f" Merged Suite Exact Match     : {res['merged_exact_match_rate_pct']:.1f}%")
+    print(f" First Call (trace+compile)   : {res['unmerged_first_call_ms']:.1f} ms two-branch, "
+          f"{res['merged_first_call_ms']:.1f} ms merged")
+    print(f" Median ms per call after warmup (batch 12x31, n={res['num_iters']}):")
+    print(f" Two-Branch LoRA Forward      : {res['unmerged_forward_ms']:.4f} ms")
+    print(f" Merged Single-Branch Forward : {res['merged_forward_ms']:.4f} ms")
+    print(f" Merged vs Two-Branch         : {res['merge_inference_speedup']:.2f}x faster")
+    print(f" Merged Exact Match (train)   : {res['merged_exact_match_rate_pct']:.1f}% of 12 cases")
     print("-" * 76)
-    print(f" Live HTTP POST /v1/triage    : HTTP {res['http_status']}")
-    print(f" Endpoint JSON Response       : {json.dumps(res['http_response'], ensure_ascii=False)}")
+    status = res["http_status"]
+    print(f" Local POST /v1/triage        : HTTP {status} (127.0.0.1, nothing deployed)")
+    r = res["http_response"]
+    print(f" Response triage              : {json.dumps(r['triage'], ensure_ascii=False)}")
+    print(f" Response schema_valid        : {r['schema_valid']} ({r['serving_mode']})")
     print("=" * 76)
 
 

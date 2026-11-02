@@ -3,15 +3,23 @@
 Demonstrates why software engineers building high-volume domain applications in Spanish
 (such as operational incident triage into strict JSON commands) hit three walls with
 long few-shot prompts:
-  1. Prefill compute latency scales with prompt length (208 few-shot tokens vs 16 compact tokens).
-  2. Input token billing & KV-cache footprint increase 13.0x on every single request.
-  3. Unadapted base weights fail strict JSON schema and domain field routing without adaptation.
+  1. Prefill compute latency grows with prompt length (208 few-shot tokens vs 16 compact tokens).
+  2. Input tokens and the KV-cache footprint are 13.0x larger on every single request.
+  3. A model that was never adapted does not produce the JSON contract from a 16-token prompt.
+
+The model is a small Gemma-style decoder (4 blocks, d_model 256, ~3.7M parameters) with
+random weights and a hand-made 64-word vocabulary. It is NOT a Gemma checkpoint: the
+mechanics carry over to a real Gemma, the quality numbers do not. Both prefill timings use
+the same model and weights, compiled with @nnx.jit, and report the median per call after a
+warmup call (compilation is reported apart). LoRA plays no part in this comparison.
 """
 
 from __future__ import annotations
 
 import json
+import statistics
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -361,6 +369,21 @@ class GemmaForCausalLM(nnx.Module):
         return self.lm_head(h)
 
 
+def _median_ms(fn: Callable[[], Any], n_iters: int) -> float:
+    """Median wall time of `fn()` in ms (robust to noisy neighbours on a shared machine)."""
+    times = []
+    for _ in range(n_iters):
+        t0 = time.perf_counter()
+        fn()
+        times.append((time.perf_counter() - t0) * 1000.0)
+    return statistics.median(times)
+
+
+def count_params(model: Any) -> int:
+    """Number of scalars in every `nnx.Param` of the model."""
+    return int(sum(x.size for x in jax.tree.leaves(nnx.state(model, nnx.Param))))
+
+
 def benchmark_prompting_wall(
     batch_size: int = 8,
     fewshot_seq_len: int = 208,
@@ -393,29 +416,29 @@ def benchmark_prompting_wall(
     fewshot_rows = [prefix_tokens + row for row in compact_rows]
     fewshot_batch = jnp.array(fewshot_rows, dtype=jnp.int32)
 
-    # Warmup both shapes so XLA compilation is excluded from steady-state prefill timing
-    _ = forward_prefill(model, fewshot_batch).block_until_ready()
-    _ = forward_prefill(model, compact_batch).block_until_ready()
-
+    # First call per shape traces + compiles; it is timed apart and excluded from the median.
     t0 = time.perf_counter()
-    for _ in range(num_iters):
-        out_few = forward_prefill(model, fewshot_batch)
-        out_few.block_until_ready()
-    fewshot_ms = ((time.perf_counter() - t0) / num_iters) * 1000.0
+    forward_prefill(model, fewshot_batch).block_until_ready()
+    fewshot_compile_ms = (time.perf_counter() - t0) * 1000.0
+    t0 = time.perf_counter()
+    forward_prefill(model, compact_batch).block_until_ready()
+    compact_compile_ms = (time.perf_counter() - t0) * 1000.0
 
-    t1 = time.perf_counter()
-    for _ in range(num_iters):
-        out_comp = forward_prefill(model, compact_batch)
-        out_comp.block_until_ready()
-    compact_ms = ((time.perf_counter() - t1) / num_iters) * 1000.0
+    fewshot_ms = _median_ms(
+        lambda: forward_prefill(model, fewshot_batch).block_until_ready(), num_iters
+    )
+    compact_ms = _median_ms(
+        lambda: forward_prefill(model, compact_batch).block_until_ready(), num_iters
+    )
 
-    # KV cache memory in float32: 2 (K,V) * num_layers * seq_len * n_kv_heads * head_dim * 4 bytes
+    # KV cache memory in float32, computed from the shapes (not measured):
+    # 2 (K,V) * num_layers * seq_len * n_kv_heads * head_dim * 4 bytes
     bytes_per_token_kv = 2 * config.num_layers * config.n_kv_heads * config.head_dim * 4
     fewshot_kv_kb = (fewshot_seq_len * bytes_per_token_kv * batch_size) / 1024.0
     compact_kv_kb = (compact_seq_len * bytes_per_token_kv * batch_size) / 1024.0
     kv_reduction_pct = (1.0 - (compact_kv_kb / fewshot_kv_kb)) * 100.0
 
-    # Evaluate unadapted base model greedy output on the first incident
+    # Greedy output of the same never-adapted model (random weights) for the first report
     greedy_ids: list[int] = list(compact_rows[0])
     for _ in range(14):
         inp = jnp.array([greedy_ids], dtype=jnp.int32)
@@ -435,10 +458,18 @@ def benchmark_prompting_wall(
 
     return {
         "backend": jax.default_backend(),
+        "model": "toy Gemma-style decoder, random weights (not a Gemma checkpoint)",
+        "model_params": count_params(model),
+        "num_layers": config.num_layers,
+        "d_model": config.d_model,
+        "timing": f"median of {num_iters} calls after one warmup call",
+        "num_iters": num_iters,
         "batch_size": batch_size,
         "fewshot_seq_len": fewshot_seq_len,
         "compact_seq_len": compact_seq_len,
         "token_overhead_ratio": float(fewshot_seq_len / compact_seq_len),
+        "fewshot_first_call_ms": float(fewshot_compile_ms),
+        "compact_first_call_ms": float(compact_compile_ms),
         "fewshot_prefill_ms": float(fewshot_ms),
         "compact_prefill_ms": float(compact_ms),
         "prefill_speedup": float(fewshot_ms / compact_ms),
@@ -452,39 +483,46 @@ def benchmark_prompting_wall(
 
 def main() -> None:
     res = benchmark_prompting_wall()
-    print("=" * 74)
-    print(" Experiment 01: When Few-Shot Prompting Hits a Wall (Gemma in Flax NNX)")
-    print("=" * 74)
+    print("=" * 76)
+    print(" Experiment 01: When Few-Shot Prompting Hits a Wall (Gemma-style, Flax NNX)")
+    print("=" * 76)
+    print(
+        f" Model                       : {res['num_layers']} blocks, d_model {res['d_model']}, "
+        f"{res['model_params']:,} params, random weights"
+    )
+    print(" Not a Gemma checkpoint      : same mechanics, quality numbers do not carry over")
     print(f" Backend Device              : {res['backend']}")
     print(
         f" Few-Shot Context Length     : {res['fewshot_seq_len']} tokens "
-        "(6 JSON examples + prompt)"
+        "(6 examples x 32 + report)"
     )
     print(
-        f" Compact Adapted Prompt Len  : {res['compact_seq_len']} tokens "
-        "(zero-shot domain input)"
+        f" Compact Prompt Length       : {res['compact_seq_len']} tokens "
+        "(report only, no examples)"
     )
     print(
-        f" Input Token Cost Multiplier : {res['token_overhead_ratio']:.1f}x "
+        f" Input Token Multiplier      : {res['token_overhead_ratio']:.1f}x "
         "more tokens per request"
     )
-    print("-" * 74)
+    print("-" * 76)
+    print(f" Same model and weights, both @nnx.jit, batch={res['batch_size']}, LoRA not involved")
+    print(f" First Call 208t (compile)   : {res['fewshot_first_call_ms']:.1f} ms (timed apart)")
+    print(f" First Call 16t (compile)    : {res['compact_first_call_ms']:.1f} ms (timed apart)")
+    print(f" Median ms per call after warmup (n={res['num_iters']}):")
+    print(f" Few-Shot Prefill (208t)     : {res['fewshot_prefill_ms']:.4f} ms")
+    print(f" Compact Prefill (16t)       : {res['compact_prefill_ms']:.4f} ms")
     print(
-        f" Few-Shot Prefill Latency    : {res['fewshot_prefill_ms']:.4f} ms "
-        f"(batch={res['batch_size']})"
+        f" Prefill Speedup (time)      : {res['prefill_speedup']:.2f}x "
+        f"(tokens: {res['token_overhead_ratio']:.1f}x)"
     )
     print(
-        f" Compact Prefill Latency     : {res['compact_prefill_ms']:.4f} ms "
-        f"(batch={res['batch_size']})"
+        f" KV-Cache, batch (computed)  : {res['fewshot_kv_cache_kb']:.1f} KB -> "
+        f"{res['compact_kv_cache_kb']:.1f} KB ({res['kv_cache_reduction_pct']:.2f}% less)"
     )
-    print(f" Prefill Compute Speedup     : {res['prefill_speedup']:.2f}x faster prefill")
-    print(
-        f" Batch KV-Cache Footprint    : {res['fewshot_kv_cache_kb']:.1f} KB -> "
-        f"{res['compact_kv_cache_kb']:.1f} KB ({res['kv_cache_reduction_pct']:.2f}% saved)"
-    )
-    print(f" Unadapted Base Model Output : {res['unadapted_sample_output']!r}")
-    print(f" Unadapted Valid JSON Schema : {res['unadapted_valid_json']}")
-    print("=" * 74)
+    print("-" * 76)
+    print(f" Untrained Model, 16t Prompt : {res['unadapted_sample_output'][:44]}...")
+    print(f" Valid JSON Schema           : {res['unadapted_valid_json']}")
+    print("=" * 76)
 
 
 if __name__ == "__main__":
