@@ -2,16 +2,16 @@
 THE OUTSIDE JUDGE — Adapting Gemma for Your App in JAX Verification Report
 ==========================================================================================================
 Runtime : Python 3.12.11 | JAX 0.12.0.1 | Flax 0.12.12 | Backend: cpu
-CPU     : Apple M1 Max (10 cores) | 1-min load average 10.23 before, 9.64 after
+CPU     : Apple M1 Max (10 cores) | 1-min load average 26.93 before, 24.41 after
 Model   : toy Gemma-style decoder, 3.67M params, random base weights (not a checkpoint)
 ----------------------------------------------------------------------------------------------------------
 Experiment                    | Baseline        | Adapted/JAX  | Result       | Fair baseline / note
 ----------------------------------------------------------------------------------------------------------
-01. Prefill 208t vs 16t (jit) | 36.96 ms        | 6.76 ms      | 5.47x        | same weights, no LoRA; KV -92.3% (formula)
+01. Prefill 208t vs 16t (jit) | 216.7 ms        | 28.63 ms     | 5.53x        | same weights, no LoRA; KV -92.3% (formula)
 02. JSON loss: no mask/mask   | 0.0677 CE       | 0.0456 CE    | 1.48x        | both 100% JSON tokens; 1 seed, train
 03. LoRA rank=4 trainable     | 3,750,144       | 77,824       | 2.08%        | base diff = 0.0 (bitwise)
 04. JSON suite, exact match   | 0/12 train      | 12/12 train  | 12/12 schema | held-out 3/6 exact, 6/6 schema
-05. Merged vs two-branch LoRA | 12.43 ms        | 10.58 ms     | 1.17x        | dots 37 = base 37; diff 9.95e-06
+05. Merged vs two-branch LoRA | 44.22 ms        | 39.09 ms     | 1.11x        | dots 37 = base 37; diff 9.95e-06
 ----------------------------------------------------------------------------------------------------------
 Local HTTP POST /v1/triage (127.0.0.1, nothing deployed): HTTP 200
 Times: median per call after a warmup; they vary run to run and with machine load.

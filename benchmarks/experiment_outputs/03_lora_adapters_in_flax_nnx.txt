@@ -7,8 +7,8 @@
  Total Parameters           : 3,750,144
  Trainable Parameter Share  : 2.08% (97.92% frozen)
 ----------------------------------------------------------------------------
- First Step (trace+compile) : 770.7 ms (timed apart)
- Median Step After Warmup   : 28.00 ms
+ First Step (trace+compile) : 1803.9 ms (timed apart)
+ Median Step After Warmup   : 76.68 ms
  JSON Loss (12 train ex.)   : 7.1653 (step 0) -> 0.5186 (step 20) -> 0.1709 (step 45)
  Base Weight Max |Diff|     : 0.00000000 (frozen=True)
  LoRA Adapter Max |Diff|    : 0.358285 (updated=True)

@@ -72,14 +72,23 @@ def merge_lora_weights_into_base(lora_model: Any) -> Any:
     return merged_model
 
 
-def _median_ms(fn: Any, n_iters: int) -> float:
-    """Median wall time of `fn()` in ms (robust to noisy neighbours on a shared machine)."""
-    times = []
-    for _ in range(n_iters):
-        t0 = time.perf_counter()
-        fn()
-        times.append((time.perf_counter() - t0) * 1000.0)
-    return statistics.median(times)
+def _paired_median_ms(fn_a: Any, fn_b: Any, n_iters: int) -> tuple[float, float, float]:
+    """Times A and B interleaved (A,B then B,A) so load spikes on a shared machine hit both.
+
+    Returns (median ms of A, median ms of B, median of the per-pair ratios A/B).
+    """
+    a_ms: list[float] = []
+    b_ms: list[float] = []
+    for i in range(n_iters):
+        pair = {}
+        for name, fn in (("a", fn_a), ("b", fn_b)) if i % 2 == 0 else (("b", fn_b), ("a", fn_a)):
+            t0 = time.perf_counter()
+            fn()
+            pair[name] = (time.perf_counter() - t0) * 1000.0
+        a_ms.append(pair["a"])
+        b_ms.append(pair["b"])
+    ratios = [a / b for a, b in zip(a_ms, b_ms)]
+    return statistics.median(a_ms), statistics.median(b_ms), statistics.median(ratios)
 
 
 def count_hlo_dots(model: Any, tokens: jax.Array) -> int:
@@ -211,11 +220,10 @@ def verify_weight_merge_and_serving(num_iters: int = 35) -> dict[str, Any]:
     merged_first_ms = (time.perf_counter() - t0) * 1000.0
     max_logits_diff = float(jnp.max(jnp.abs(logits_unmerged - logits_merged)))
 
-    unmerged_ms = _median_ms(
-        lambda: forward_jit(lora_model, input_ids).block_until_ready(), num_iters
-    )
-    merged_ms = _median_ms(
-        lambda: forward_jit(merged_model, input_ids).block_until_ready(), num_iters
+    unmerged_ms, merged_ms, merge_ratio = _paired_median_ms(
+        lambda: forward_jit(lora_model, input_ids).block_until_ready(),
+        lambda: forward_jit(merged_model, input_ids).block_until_ready(),
+        num_iters,
     )
 
     hlo_dots = {
@@ -235,13 +243,13 @@ def verify_weight_merge_and_serving(num_iters: int = 35) -> dict[str, Any]:
         "base_total_params": int(base_params),
         "max_logits_abs_diff": max_logits_diff,
         "hlo_dot_ops": hlo_dots,
-        "timing": f"median of {num_iters} calls after one warmup call",
+        "timing": f"interleaved pairs, median of {num_iters} calls after one warmup call",
         "num_iters": num_iters,
         "unmerged_first_call_ms": float(unmerged_first_ms),
         "merged_first_call_ms": float(merged_first_ms),
         "unmerged_forward_ms": float(unmerged_ms),
         "merged_forward_ms": float(merged_ms),
-        "merge_inference_speedup": float(unmerged_ms / merged_ms),
+        "merge_inference_speedup": float(merge_ratio),
         "merged_exact_match_rate_pct": float(merged_eval["exact_match_rate_pct"]),
         "http_server": "local, 127.0.0.1, in-process (nothing deployed)",
         "http_status": http_check["http_status"],
@@ -271,10 +279,12 @@ def main() -> None:
     print("-" * 76)
     print(f" First Call (trace+compile)   : {res['unmerged_first_call_ms']:.1f} ms two-branch, "
           f"{res['merged_first_call_ms']:.1f} ms merged")
-    print(f" Median ms per call after warmup (batch 12x31, n={res['num_iters']}):")
+    n = res["num_iters"]
+    print(f" Median ms per call after warmup (batch 12x31, n={n}, interleaved pairs):")
     print(f" Two-Branch LoRA Forward      : {res['unmerged_forward_ms']:.4f} ms")
     print(f" Merged Single-Branch Forward : {res['merged_forward_ms']:.4f} ms")
-    print(f" Merged vs Two-Branch         : {res['merge_inference_speedup']:.2f}x faster")
+    ratio = res["merge_inference_speedup"]
+    print(f" Merged vs Two-Branch         : {ratio:.2f}x (median per-pair ratio)")
     print(f" Merged Exact Match (train)   : {res['merged_exact_match_rate_pct']:.1f}% of 12 cases")
     print("-" * 76)
     status = res["http_status"]

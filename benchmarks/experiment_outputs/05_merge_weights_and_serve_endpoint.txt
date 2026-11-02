@@ -6,11 +6,11 @@
  Max |Logits_LoRA - Merged|   : 9.95e-06 (judge: < 1e-5)
  Compiled HLO dot ops         : base 37 | merged 37 | two-branch 93
 ----------------------------------------------------------------------------
- First Call (trace+compile)   : 272.4 ms two-branch, 240.4 ms merged
- Median ms per call after warmup (batch 12x31, n=35):
- Two-Branch LoRA Forward      : 12.4387 ms
- Merged Single-Branch Forward : 10.3249 ms
- Merged vs Two-Branch         : 1.20x faster
+ First Call (trace+compile)   : 500.4 ms two-branch, 441.9 ms merged
+ Median ms per call after warmup (batch 12x31, n=35, interleaved pairs):
+ Two-Branch LoRA Forward      : 38.1319 ms
+ Merged Single-Branch Forward : 33.5210 ms
+ Merged vs Two-Branch         : 1.13x (median per-pair ratio)
  Merged Exact Match (train)   : 100.0% of 12 cases
 ----------------------------------------------------------------------------
  Local POST /v1/triage        : HTTP 200 (127.0.0.1, nothing deployed)

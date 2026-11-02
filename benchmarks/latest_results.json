@@ -9,16 +9,16 @@
     "cpu_model": "Apple M1 Max",
     "cpu_count": 10,
     "load_average_before": [
-      10.23,
-      16.32,
-      17.18
+      26.93,
+      29.5,
+      24.73
     ],
     "load_average_after": [
-      9.64,
-      15.58,
-      16.88
+      24.41,
+      28.05,
+      24.73
     ],
-    "timing": "median ms per call after one warmup call; varies run to run",
+    "timing": "median ms per call after a warmup (A/B interleaved); varies run to run",
     "model": "toy Gemma-style decoder (4 blocks, d_model 256), random base weights; not a Gemma checkpoint"
   },
   "experiments": {
@@ -28,17 +28,17 @@
       "model_params": 3672320,
       "num_layers": 4,
       "d_model": 256,
-      "timing": "median of 25 calls after one warmup call",
+      "timing": "interleaved pairs, median of 25 calls after one warmup call",
       "num_iters": 25,
       "batch_size": 8,
       "fewshot_seq_len": 208,
       "compact_seq_len": 16,
       "token_overhead_ratio": 13.0,
-      "fewshot_first_call_ms": 268.75016605481505,
-      "compact_first_call_ms": 266.1386248655617,
-      "fewshot_prefill_ms": 36.95958387106657,
-      "compact_prefill_ms": 6.758334115147591,
-      "prefill_speedup": 5.4687417403984675,
+      "fewshot_first_call_ms": 989.8010841570795,
+      "compact_first_call_ms": 612.2221248224378,
+      "fewshot_prefill_ms": 216.73195902258158,
+      "compact_prefill_ms": 28.627708088606596,
+      "prefill_speedup": 5.529929498865698,
       "fewshot_kv_cache_kb": 6656.0,
       "compact_kv_cache_kb": 512.0,
       "kv_cache_reduction_pct": 92.3076923076923,
@@ -72,8 +72,8 @@
       "lora_rank": 4,
       "wrapped_projections": 28,
       "steps": 45,
-      "first_step_ms": 773.8766658585519,
-      "median_step_ms": 28.25833356473595,
+      "first_step_ms": 1525.5646668374538,
+      "median_step_ms": 75.17302082851529,
       "loss_before": 7.16532039642334,
       "loss_step_20": 0.5186219215393066,
       "loss_after": 0.17091724276542664,
@@ -207,13 +207,13 @@
         "merged": 37,
         "two_branch_lora": 93
       },
-      "timing": "median of 35 calls after one warmup call",
+      "timing": "interleaved pairs, median of 35 calls after one warmup call",
       "num_iters": 35,
-      "unmerged_first_call_ms": 274.83049989677966,
-      "merged_first_call_ms": 242.4343330785632,
-      "unmerged_forward_ms": 12.42945808917284,
-      "merged_forward_ms": 10.583375114947557,
-      "merge_inference_speedup": 1.1744323482986014,
+      "unmerged_first_call_ms": 558.2537499722093,
+      "merged_first_call_ms": 574.1632499266416,
+      "unmerged_forward_ms": 44.219041941687465,
+      "merged_forward_ms": 39.08791719004512,
+      "merge_inference_speedup": 1.1093075495463307,
       "merged_exact_match_rate_pct": 100.0,
       "http_server": "local, 127.0.0.1, in-process (nothing deployed)",
       "http_status": 200,
@@ -226,7 +226,7 @@
         },
         "raw_completion": "{\"sev\":\"P1\",\"svc\":\"pagos\",\"act\":\"rollback\"}",
         "schema_valid": true,
-        "inference_ms": 40.3301,
+        "inference_ms": 92.6215,
         "serving_mode": "merged_single_branch_xla"
       }
     }

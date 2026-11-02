@@ -134,7 +134,7 @@ def run_verification() -> dict[str, Any]:
             "cpu_count": os.cpu_count(),
             "load_average_before": load_before,
             "load_average_after": _load_average(),
-            "timing": "median ms per call after one warmup call; varies run to run",
+            "timing": "median ms per call after a warmup (A/B interleaved); varies run to run",
             "model": "toy Gemma-style decoder (4 blocks, d_model 256), random base weights; "
             "not a Gemma checkpoint",
         },
@@ -261,7 +261,8 @@ def readme_block(summary: dict[str, Any], report_text: str) -> str:
             f"Corrida del juez en {rt['cpu_model']} ({rt['cpu_count']} núcleos), "
             f"Python {rt['python']}, JAX {rt['jax']}, Flax {rt['flax']}, backend "
             f"`{rt['backend']}`. Carga del sistema (load average de 1 min): {load0} al empezar. "
-            "Tiempos = mediana por llamada después de una llamada de calentamiento. "
+            "Tiempos = mediana por llamada después de una llamada de calentamiento, "
+            "con las dos variantes intercaladas; speedup = mediana de los cocientes por par. "
             "Modelo de juguete estilo Gemma con pesos base aleatorios."
         ),
         "",

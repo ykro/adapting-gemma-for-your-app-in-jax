@@ -35,15 +35,15 @@ Este bloque lo reescribe `verify_adaptation.py` en cada corrida con los mismos v
 
 <!-- judge:start -->
 
-Corrida del juez en Apple M1 Max (10 núcleos), Python 3.12.11, JAX 0.12.0.1, Flax 0.12.12, backend `cpu`. Carga del sistema (load average de 1 min): 10.23 al empezar. Tiempos = mediana por llamada después de una llamada de calentamiento. Modelo de juguete estilo Gemma con pesos base aleatorios.
+Corrida del juez en Apple M1 Max (10 núcleos), Python 3.12.11, JAX 0.12.0.1, Flax 0.12.12, backend `cpu`. Carga del sistema (load average de 1 min): 26.93 al empezar. Tiempos = mediana por llamada después de una llamada de calentamiento, con las dos variantes intercaladas; speedup = mediana de los cocientes por par. Modelo de juguete estilo Gemma con pesos base aleatorios.
 
 | Experimento | Baseline | Adaptado / JAX | Resultado | Baseline justo / nota |
 | :--- | :--- | :--- | :--- | :--- |
-| **01. Prefill 208t vs 16t (jit)** | `36.96 ms` | `6.76 ms` | **5.47x** | same weights, no LoRA; KV -92.3% (formula) |
+| **01. Prefill 208t vs 16t (jit)** | `216.7 ms` | `28.63 ms` | **5.53x** | same weights, no LoRA; KV -92.3% (formula) |
 | **02. JSON loss: no mask/mask** | `0.0677 CE` | `0.0456 CE` | **1.48x** | both 100% JSON tokens; 1 seed, train |
 | **03. LoRA rank=4 trainable** | `3,750,144` | `77,824` | **2.08%** | base diff = 0.0 (bitwise) |
 | **04. JSON suite, exact match** | `0/12 train` | `12/12 train` | **12/12 schema** | held-out 3/6 exact, 6/6 schema |
-| **05. Merged vs two-branch LoRA** | `12.43 ms` | `10.58 ms` | **1.17x** | dots 37 = base 37; diff 9.95e-06 |
+| **05. Merged vs two-branch LoRA** | `44.22 ms` | `39.09 ms` | **1.11x** | dots 37 = base 37; diff 9.95e-06 |
 
 Salida íntegra de terminal generada por `verify_adaptation.py`:
 
@@ -52,16 +52,16 @@ Salida íntegra de terminal generada por `verify_adaptation.py`:
 THE OUTSIDE JUDGE — Adapting Gemma for Your App in JAX Verification Report
 ==========================================================================================================
 Runtime : Python 3.12.11 | JAX 0.12.0.1 | Flax 0.12.12 | Backend: cpu
-CPU     : Apple M1 Max (10 cores) | 1-min load average 10.23 before, 9.64 after
+CPU     : Apple M1 Max (10 cores) | 1-min load average 26.93 before, 24.41 after
 Model   : toy Gemma-style decoder, 3.67M params, random base weights (not a checkpoint)
 ----------------------------------------------------------------------------------------------------------
 Experiment                    | Baseline        | Adapted/JAX  | Result       | Fair baseline / note
 ----------------------------------------------------------------------------------------------------------
-01. Prefill 208t vs 16t (jit) | 36.96 ms        | 6.76 ms      | 5.47x        | same weights, no LoRA; KV -92.3% (formula)
+01. Prefill 208t vs 16t (jit) | 216.7 ms        | 28.63 ms     | 5.53x        | same weights, no LoRA; KV -92.3% (formula)
 02. JSON loss: no mask/mask   | 0.0677 CE       | 0.0456 CE    | 1.48x        | both 100% JSON tokens; 1 seed, train
 03. LoRA rank=4 trainable     | 3,750,144       | 77,824       | 2.08%        | base diff = 0.0 (bitwise)
 04. JSON suite, exact match   | 0/12 train      | 12/12 train  | 12/12 schema | held-out 3/6 exact, 6/6 schema
-05. Merged vs two-branch LoRA | 12.43 ms        | 10.58 ms     | 1.17x        | dots 37 = base 37; diff 9.95e-06
+05. Merged vs two-branch LoRA | 44.22 ms        | 39.09 ms     | 1.11x        | dots 37 = base 37; diff 9.95e-06
 ----------------------------------------------------------------------------------------------------------
 Local HTTP POST /v1/triage (127.0.0.1, nothing deployed): HTTP 200
 Times: median per call after a warmup; they vary run to run and with machine load.
@@ -74,7 +74,7 @@ ALL DETERMINISTIC ADAPTATION CHECKS PASSED.
 ### Cómo leer estas cifras
 
 - **Modelo de juguete.** Todo corre sobre un decoder estilo Gemma de 3.7 M parámetros con pesos base aleatorios y un vocabulario de 64 palabras. La mecánica (prefill, máscara, `nnx.LoRA`, fusión, evaluación) es la misma que con un Gemma real; las cifras de calidad no se trasladan.
-- **Qué es mediana tras calentamiento.** Cada tiempo es la mediana de varias llamadas (25 en el 01, 35 en el 05), medida después de una primera llamada que traza y compila y que se reporta aparte (`First Call (trace+compile)`). Las llamadas terminan en `block_until_ready()` para medir el cálculo completo y no solo el *dispatch* asíncrono.
+- **Qué es mediana tras calentamiento.** Cada tiempo es la mediana de varias llamadas (25 en el 01, 35 en el 05), medida después de una primera llamada que traza y compila y que se reporta aparte (`First Call (trace+compile)`). Las dos variantes que se comparan se corren intercaladas (A, B y luego B, A), así un pico de carga en una máquina compartida les pega a las dos, y el speedup es la mediana de los cocientes de cada par. Las llamadas terminan en `block_until_ready()` para medir el cálculo completo y no solo el *dispatch* asíncrono.
 - **Qué compara el 01.** El mismo modelo y los mismos pesos con dos longitudes de prompt. LoRA no participa. Toda la ganancia viene de mandar menos tokens. El `KV-cache` sale de una fórmula sobre las formas, no de una medición. Un servidor de inferencia que cachea un prefijo repetido recortaría parte de este costo; aquí no se mide.
 - **El 02 es una ventaja modesta.** Una sola semilla, 12 pasos, entrenamiento completo (sin LoRA), evaluado sobre los tokens del JSON de los mismos 12 ejemplos. Las dos versiones aciertan todos los tokens; la máscara deja la pérdida más baja.
 - **El 12/12 del 04 es sobre el set de entrenamiento.** Los 12 casos son los 6 reportes de entrenamiento y 6 reordenamientos de las mismas palabras, y el «antes» es el modelo con pesos aleatorios y sin ejemplos, un baseline débil a propósito. Muestra que el contrato se aprendió y que el pipeline funciona de punta a punta. La generalización queda sin demostrar: en 6 reportes que no están en el entrenamiento (mismo vocabulario, otro orden, algunas palabras menos) el JSON sale válido en todos, pero el contenido acierta en menos (ver la columna de baseline justo). La decodificación es greedy, sin máscara de gramática.

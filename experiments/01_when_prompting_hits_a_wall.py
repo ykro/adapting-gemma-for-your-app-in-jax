@@ -369,14 +369,25 @@ class GemmaForCausalLM(nnx.Module):
         return self.lm_head(h)
 
 
-def _median_ms(fn: Callable[[], Any], n_iters: int) -> float:
-    """Median wall time of `fn()` in ms (robust to noisy neighbours on a shared machine)."""
-    times = []
-    for _ in range(n_iters):
-        t0 = time.perf_counter()
-        fn()
-        times.append((time.perf_counter() - t0) * 1000.0)
-    return statistics.median(times)
+def _paired_median_ms(
+    fn_a: Callable[[], Any], fn_b: Callable[[], Any], n_iters: int
+) -> tuple[float, float, float]:
+    """Times A and B interleaved (A,B then B,A) so load spikes on a shared machine hit both.
+
+    Returns (median ms of A, median ms of B, median of the per-pair ratios A/B).
+    """
+    a_ms: list[float] = []
+    b_ms: list[float] = []
+    for i in range(n_iters):
+        pair = {}
+        for name, fn in (("a", fn_a), ("b", fn_b)) if i % 2 == 0 else (("b", fn_b), ("a", fn_a)):
+            t0 = time.perf_counter()
+            fn()
+            pair[name] = (time.perf_counter() - t0) * 1000.0
+        a_ms.append(pair["a"])
+        b_ms.append(pair["b"])
+    ratios = [a / b for a, b in zip(a_ms, b_ms)]
+    return statistics.median(a_ms), statistics.median(b_ms), statistics.median(ratios)
 
 
 def count_params(model: Any) -> int:
@@ -424,11 +435,10 @@ def benchmark_prompting_wall(
     forward_prefill(model, compact_batch).block_until_ready()
     compact_compile_ms = (time.perf_counter() - t0) * 1000.0
 
-    fewshot_ms = _median_ms(
-        lambda: forward_prefill(model, fewshot_batch).block_until_ready(), num_iters
-    )
-    compact_ms = _median_ms(
-        lambda: forward_prefill(model, compact_batch).block_until_ready(), num_iters
+    fewshot_ms, compact_ms, prefill_ratio = _paired_median_ms(
+        lambda: forward_prefill(model, fewshot_batch).block_until_ready(),
+        lambda: forward_prefill(model, compact_batch).block_until_ready(),
+        num_iters,
     )
 
     # KV cache memory in float32, computed from the shapes (not measured):
@@ -462,7 +472,7 @@ def benchmark_prompting_wall(
         "model_params": count_params(model),
         "num_layers": config.num_layers,
         "d_model": config.d_model,
-        "timing": f"median of {num_iters} calls after one warmup call",
+        "timing": f"interleaved pairs, median of {num_iters} calls after one warmup call",
         "num_iters": num_iters,
         "batch_size": batch_size,
         "fewshot_seq_len": fewshot_seq_len,
@@ -472,7 +482,7 @@ def benchmark_prompting_wall(
         "compact_first_call_ms": float(compact_compile_ms),
         "fewshot_prefill_ms": float(fewshot_ms),
         "compact_prefill_ms": float(compact_ms),
-        "prefill_speedup": float(fewshot_ms / compact_ms),
+        "prefill_speedup": float(prefill_ratio),
         "fewshot_kv_cache_kb": float(fewshot_kv_kb),
         "compact_kv_cache_kb": float(compact_kv_kb),
         "kv_cache_reduction_pct": float(kv_reduction_pct),
@@ -508,12 +518,12 @@ def main() -> None:
     print(f" Same model and weights, both @nnx.jit, batch={res['batch_size']}, LoRA not involved")
     print(f" First Call 208t (compile)   : {res['fewshot_first_call_ms']:.1f} ms (timed apart)")
     print(f" First Call 16t (compile)    : {res['compact_first_call_ms']:.1f} ms (timed apart)")
-    print(f" Median ms per call after warmup (n={res['num_iters']}):")
+    print(f" Median ms per call after warmup (n={res['num_iters']}, interleaved pairs):")
     print(f" Few-Shot Prefill (208t)     : {res['fewshot_prefill_ms']:.4f} ms")
     print(f" Compact Prefill (16t)       : {res['compact_prefill_ms']:.4f} ms")
     print(
         f" Prefill Speedup (time)      : {res['prefill_speedup']:.2f}x "
-        f"(tokens: {res['token_overhead_ratio']:.1f}x)"
+        f"(median per-pair ratio; tokens: {res['token_overhead_ratio']:.1f}x)"
     )
     print(
         f" KV-Cache, batch (computed)  : {res['fewshot_kv_cache_kb']:.1f} KB -> "
